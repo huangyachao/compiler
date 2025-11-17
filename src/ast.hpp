@@ -1,12 +1,14 @@
 #pragma once
 #include <memory>
 #include <iostream>
+
 // 所有 AST 的基类
 class BaseAST
 {
 public:
     virtual ~BaseAST() = default;
     virtual void Dump() const = 0;
+    virtual std::string GenerateIR() const = 0;
 };
 
 // CompUnit 是 BaseAST
@@ -21,6 +23,11 @@ public:
         std::cout << "CompUnitAST { ";
         func_def->Dump();
         std::cout << " }";
+    }
+
+    std::string GenerateIR() const override
+    {
+        return func_def->GenerateIR();
     }
 };
 
@@ -41,6 +48,15 @@ public:
         block->Dump();
         std::cout << " } ";
     }
+
+    std::string GenerateIR() const override
+    {
+        std::string ret = "fun @" + ident + "(): ";
+        ret += func_type->GenerateIR();
+        ret += " ";
+        ret += block->GenerateIR();
+        return ret;
+    }
 };
 
 class FuncTypeAST : public BaseAST
@@ -52,6 +68,15 @@ public:
         std::cout << "FuncTypeAST { ";
         std::cout << func_type;
         std::cout << " } ";
+    }
+
+    std::string GenerateIR() const override
+    {
+
+        if (func_type == "int")
+            return "i32";
+        else
+            abort();
     }
 };
 
@@ -65,6 +90,15 @@ public:
         stmt->Dump();
         std::cout << " } ";
     }
+
+    std::string GenerateIR() const override
+    {
+        std::string ret = "{\n";
+        ret += "%entry:\n";
+        ret += stmt->GenerateIR();
+        ret += "}\n";
+        return ret;
+    }
 };
 
 class StmtAST : public BaseAST
@@ -76,5 +110,13 @@ public:
         std::cout << "StmtAST { ";
         std::cout << number;
         std::cout << " } ";
+    }
+
+    std::string GenerateIR() const override
+    {
+        std::string ret = "  ";
+        ret += "ret ";
+        ret += std::to_string(number) + "\n";
+        return ret;
     }
 };

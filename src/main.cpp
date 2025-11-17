@@ -37,5 +37,14 @@ int main(int argc, const char *argv[])
   ast->Dump();
   cout << endl;
 
+  string ir = ast->GenerateIR();
+  FILE *fp = fopen(output, "w");
+  if (!fp)
+    return -1;
+
+  fwrite(ir.c_str(), 1, ir.size(), fp);
+
+  fclose(fp);
+
   return 0;
 }
