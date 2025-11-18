@@ -3,7 +3,9 @@
 #include <iostream>
 #include <memory>
 #include <string>
+
 #include "ast.hpp"
+#include "visitor.hpp"
 
 using namespace std;
 
@@ -42,7 +44,16 @@ int main(int argc, const char *argv[])
   if (!fp)
     return -1;
 
-  fwrite(ir.c_str(), 1, ir.size(), fp);
+  if (string(mode) == "-koopa")
+  {
+    fwrite(ir.c_str(), 1, ir.size(), fp);
+  }
+  else if (string(mode) == "-riscv")
+  {
+    Vistor vistor(ir);
+    string riscv_code = vistor.Visit();
+    fwrite(riscv_code.c_str(), 1, riscv_code.size(), fp);
+  }
 
   fclose(fp);
 
