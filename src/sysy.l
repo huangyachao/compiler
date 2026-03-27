@@ -41,6 +41,9 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 "+"             { return PLUS; }
 "-"             { return MINUS; }
 "!"             { return NOT; }
+"*"             { return MUL; }
+"/"             { return DIV; }
+"%"             { return MOD; }
 
 {Identifier}    { yylval.str_val = new string(yytext); return IDENT; }
 

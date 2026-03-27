@@ -39,13 +39,13 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN PLUS MINUS NOT
+%token INT RETURN PLUS MINUS NOT MUL DIV MOD
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
-%type <ast_val> FuncDef FuncType Block Stmt Exp PrimaryExp UnaryExp NumberExp
-%type <str_val> UnaryOp
+%type <ast_val> FuncDef FuncType Block Stmt Exp PrimaryExp UnaryExp NumberExp MulExp AddExp
+%type <str_val> UnaryOp MulOp AddOp
 
 %%
 
@@ -109,9 +109,9 @@ Stmt
   ;
 
 Exp
-  : UnaryExp {
+  : AddExp {
     auto ast = new ExpAST();
-    ast->unar_exp = unique_ptr<BaseAST>($1);
+    ast->add_exp = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
   ;
@@ -127,6 +127,7 @@ PrimaryExp
     ast->exp_ast = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
+  ;
 
 UnaryExp
   : PrimaryExp {
@@ -142,9 +143,9 @@ UnaryExp
     $$ = ast;
   }
   ;
+
 UnaryOp
   : PLUS {
-    
     $$ = new string("+");
   }
   | MINUS {
@@ -153,6 +154,62 @@ UnaryOp
   | NOT {
     $$ = new string("!");
   }
+  ;
+
+MulOp
+  : MUL {
+    $$ = new string("*");
+  }
+  | DIV {
+    $$ = new string("/");
+  }
+  | MOD {
+    $$ = new string("%");
+  }
+  ;
+
+MulExp
+  : UnaryExp {
+    auto ast = new MulExpAST();
+    ast->mul_exp = nullptr;
+    ast->op = "";
+    ast->unar_exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | MulExp MulOp UnaryExp {
+    auto ast = new MulExpAST();
+    ast->mul_exp = unique_ptr<BaseAST>($1);
+    ast->op = *$2;
+    ast->unar_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
+
+AddOp
+  : PLUS {
+    $$ = new string("+");
+  }
+  | MINUS {
+    $$ = new string("-");
+  }
+  ;
+
+AddExp
+  : MulExp{
+    auto ast = new AddExpAST();
+    ast->add_exp = nullptr;
+    ast->op = "";
+    ast->mul_exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | AddExp AddOp MulExp {
+    auto ast = new AddExpAST();
+    ast->add_exp = unique_ptr<BaseAST>($1);
+    ast->op = *$2;
+    ast->mul_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
 
 NumberExp
   : INT_CONST {

@@ -147,17 +147,120 @@ public:
 class ExpAST : public BaseAST
 {
 public:
-    std::unique_ptr<BaseAST> unar_exp;
+    std::unique_ptr<BaseAST> add_exp;
     void Dump() const override
     {
         std::cout << "ExpAST { ";
+        add_exp->Dump();
+        std::cout << " } ";
+    }
+
+    std::string GenerateIR(IRBuilder &builder) const override
+    {
+        return add_exp->GenerateIR(builder);
+    }
+};
+
+class MulExpAST : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> mul_exp;
+    std::string op;
+    std::unique_ptr<BaseAST> unar_exp;
+
+    void Dump() const override
+    {
+        std::cout << "ExpAST { ";
+        if (op != "")
+        {
+            mul_exp->Dump();
+            std::cout << op << " ";
+        }
         unar_exp->Dump();
         std::cout << " } ";
     }
 
     std::string GenerateIR(IRBuilder &builder) const override
     {
-        return unar_exp->GenerateIR(builder);
+        if (op == "")
+        {
+            return unar_exp->GenerateIR(builder);
+        }
+        else if (op == "*")
+        {
+            std::string mul_exp_value = mul_exp->GenerateIR(builder);
+            std::string unar_exp_value = unar_exp->GenerateIR(builder);
+            std::string reg = builder.NewReg();
+            builder.Emit("  " + reg + " = mul " + mul_exp_value + ", " + unar_exp_value + "\n");
+            return reg;
+        }
+        else if (op == "/")
+        {
+            std::string mul_exp_value = mul_exp->GenerateIR(builder);
+            std::string unar_exp_value = unar_exp->GenerateIR(builder);
+            std::string reg = builder.NewReg();
+            builder.Emit("  " + reg + " = div " + mul_exp_value + ", " + unar_exp_value + "\n");
+            return reg;
+        }
+        else if (op == "%")
+        {
+            std::string mul_exp_value = mul_exp->GenerateIR(builder);
+            std::string unar_exp_value = unar_exp->GenerateIR(builder);
+            std::string reg = builder.NewReg();
+            builder.Emit("  " + reg + " = mod " + mul_exp_value + ", " + unar_exp_value + "\n");
+            return reg;
+        }
+        else
+        {
+            abort();
+        }
+    }
+};
+
+class AddExpAST : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> add_exp;
+    std::string op;
+    std::unique_ptr<BaseAST> mul_exp;
+    void Dump() const override
+    {
+        std::cout << "ExpAST { ";
+        if (op != "")
+        {
+            add_exp->Dump();
+            std::cout << op << " ";
+        }
+        mul_exp->Dump();
+        std::cout << " } ";
+    }
+
+    std::string GenerateIR(IRBuilder &builder) const override
+    {
+        if (op == "")
+        {
+            return mul_exp->GenerateIR(builder);
+        }
+        else if (op == "+")
+        {
+            std::string mul_exp_value = add_exp->GenerateIR(builder);
+            std::string unar_exp_value = mul_exp->GenerateIR(builder);
+            std::string reg = builder.NewReg();
+            builder.Emit("  " + reg + " = add " + mul_exp_value + ", " + unar_exp_value + "\n");
+            return reg;
+        }
+        else if (op == "-")
+        {
+            std::string mul_exp_value = add_exp->GenerateIR(builder);
+            std::string unar_exp_value = mul_exp->GenerateIR(builder);
+            std::string reg = builder.NewReg();
+            builder.Emit("  " + reg + " = sub " + mul_exp_value + ", " + unar_exp_value + "\n");
+            return reg;
+        }
+        else
+        {
+            abort();
+        }
     }
 };
 

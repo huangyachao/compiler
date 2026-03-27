@@ -185,12 +185,44 @@ public:
             riscv_code += "  seqz  " + first_value + ", " + first_value + "\n";
             return first_value;
         }
-        else if (binary.op == KOOPA_RBO_SUB)
+        else if (binary.op == KOOPA_RBO_ADD)
         {
-            std::string new_register = NewRegister();
             std::string first_value = Visit(binary.lhs);
             std::string second_value = Visit(binary.rhs);
+            std::string new_register = NewRegister();
+            riscv_code += "  add   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            return new_register;
+        }
+        else if (binary.op == KOOPA_RBO_SUB)
+        {
+            std::string first_value = Visit(binary.lhs);
+            std::string second_value = Visit(binary.rhs);
+            std::string new_register = NewRegister();
             riscv_code += "  sub   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            return new_register;
+        }
+        else if (binary.op == KOOPA_RBO_MUL)
+        {
+            std::string first_value = Visit(binary.lhs);
+            std::string second_value = Visit(binary.rhs);
+            std::string new_register = NewRegister();
+            riscv_code += "  mul   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            return new_register;
+        }
+        else if (binary.op == KOOPA_RBO_DIV)
+        {
+            std::string first_value = Visit(binary.lhs);
+            std::string second_value = Visit(binary.rhs);
+            std::string new_register = NewRegister();
+            riscv_code += "  div   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            return new_register;
+        }
+        else if (binary.op == KOOPA_RBO_MOD)
+        {
+            std::string first_value = Visit(binary.lhs);
+            std::string second_value = Visit(binary.rhs);
+            std::string new_register = NewRegister();
+            riscv_code += "  mod   " + new_register + ", " + first_value + ", " + second_value + "\n";
             return new_register;
         }
 
