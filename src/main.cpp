@@ -39,7 +39,9 @@ int main(int argc, const char *argv[])
   ast->Dump();
   cout << endl;
 
-  string ir = ast->GenerateIR();
+  IRBuilder builder;
+  ast->GenerateIR(builder);
+  string ir = builder.GetIR();
   FILE *fp = fopen(output, "w");
   if (!fp)
     return -1;
@@ -51,7 +53,8 @@ int main(int argc, const char *argv[])
   else if (string(mode) == "-riscv")
   {
     Vistor vistor(ir);
-    string riscv_code = vistor.Visit();
+    vistor.Visit();
+    string riscv_code = vistor.GetRiscvCode();
     fwrite(riscv_code.c_str(), 1, riscv_code.size(), fp);
   }
 

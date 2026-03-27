@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <string>
+#include <unordered_map>
 #include "koopa.h"
 class Vistor
 {
@@ -8,6 +9,30 @@ private:
     koopa_raw_program_builder_t builder;
     koopa_raw_program_t raw_program;
     std::vector<std::string> global_symbols;
+    std::vector<std::string> registers = {
+        "t0",
+        "t1",
+        "t2",
+        "t3",
+        "t4",
+        "t5",
+        "t6",
+        "a0",
+        "a1",
+        "a2",
+        "a3",
+        "a4",
+        "a5",
+        "a6",
+        "a7",
+    };
+    int register_count = 0;
+    std::string riscv_code = "";
+    std::unordered_map<koopa_raw_value_t, std::string> raw_value_map;
+    std::string NewRegister()
+    {
+        return registers[register_count++];
+    }
 
 public:
     Vistor(std::string ir)
@@ -26,28 +51,25 @@ public:
     }
 
     // 访问 raw program
-    std::string Visit()
+    void Visit()
     {
-        std::string header = "  .text\n";
-
-        std::string body = "";
         // 访问所有全局变量
-        body += Visit(raw_program.values);
+        Visit(raw_program.values);
         // 访问所有函数
-        body += Visit(raw_program.funcs);
+        Visit(raw_program.funcs);
 
+        std::string new_riscv_code = "  .text\n";
         for (std::string symbol : global_symbols)
         {
-            header += "  .globl " + symbol + "\n";
+            new_riscv_code += "  .globl " + symbol + "\n";
         }
-
-        return header + body;
+        riscv_code = new_riscv_code + riscv_code;
+        return;
     }
 
     // 访问 raw slice
-    std::string Visit(const koopa_raw_slice_t &slice)
+    void Visit(const koopa_raw_slice_t &slice)
     {
-        std::string ret = "";
         for (size_t i = 0; i < slice.len; ++i)
         {
             auto ptr = slice.buffer[i];
@@ -56,45 +78,49 @@ public:
             {
             case KOOPA_RSIK_FUNCTION:
                 // 访问函数
-                ret += Visit(reinterpret_cast<koopa_raw_function_t>(ptr));
+                Visit(reinterpret_cast<koopa_raw_function_t>(ptr));
                 break;
             case KOOPA_RSIK_BASIC_BLOCK:
                 // 访问基本块
-                ret += Visit(reinterpret_cast<koopa_raw_basic_block_t>(ptr));
+                Visit(reinterpret_cast<koopa_raw_basic_block_t>(ptr));
                 break;
             case KOOPA_RSIK_VALUE:
                 // 访问指令
-                ret += Visit(reinterpret_cast<koopa_raw_value_t>(ptr));
+                Visit(reinterpret_cast<koopa_raw_value_t>(ptr));
                 break;
             default:
                 // 我们暂时不会遇到其他内容, 于是不对其做任何处理
                 assert(false);
             }
         }
-        return ret;
+        return;
     }
 
     // 访问函数
-    std::string Visit(const koopa_raw_function_t &func)
+    void Visit(const koopa_raw_function_t &func)
     {
         std::string symbol = std::string(func->name).substr(1);
         global_symbols.push_back(symbol);
-        std::string ret = symbol + ":\n";
+        riscv_code += symbol + ":\n";
         // 访问所有基本块
-        ret += Visit(func->bbs);
-        return ret;
+        Visit(func->bbs);
+        return;
     }
 
     // 访问基本块
-    std::string Visit(const koopa_raw_basic_block_t &bb)
+    void Visit(const koopa_raw_basic_block_t &bb)
     {
         // 访问所有指令
-        return Visit(bb->insts);
+        Visit(bb->insts);
     }
 
     // 访问指令
     std::string Visit(const koopa_raw_value_t &value)
     {
+        if (raw_value_map.count(value) > 0)
+        {
+            return raw_value_map[value];
+        }
         std::string ret = "";
         // 根据指令类型判断后续需要如何访问
         const auto &kind = value->kind;
@@ -102,33 +128,80 @@ public:
         {
         case KOOPA_RVT_RETURN:
             // 访问 return 指令
-            ret += Visit(kind.data.ret);
+            Visit(kind.data.ret);
             break;
         case KOOPA_RVT_INTEGER:
             // 访问 integer 指令
-            ret += Visit(kind.data.integer);
+            ret = Visit(kind.data.integer);
+            raw_value_map[value] = ret;
             break;
+        case KOOPA_RVT_BINARY:
+            // 访问 binary 指令
+            ret = Visit(kind.data.binary);
+            raw_value_map[value] = ret;
+            break;
+
         default:
             // 其他类型暂时遇不到
             assert(false);
         }
+
         return ret;
     }
 
     std::string Visit(const koopa_raw_integer_t &value)
     {
-        return std::to_string(value.value);
+        std::string s_val = std::to_string(value.value);
+        if (s_val == "0")
+        {
+            return "x0";
+        }
+        std::string new_reg = NewRegister();
+        riscv_code += "  li    " + new_reg + ", " + s_val + "\n";
+        return new_reg;
     }
 
-    std::string Visit(const koopa_raw_return_t &value)
+    void Visit(const koopa_raw_return_t &value)
     {
         koopa_raw_value_t raw_value = value.value;
         if (raw_value == nullptr)
-            return "";
-        std::string ret = "  li a0, ";
-        ret += Visit(raw_value) + "\n";
-        ret += "  ret\n";
+            return;
+        std::string return_value = Visit(raw_value);
+        if (return_value != "")
+        {
+            riscv_code += "  mv    a0, " + return_value + "\n";
+        }
+        riscv_code += "  ret\n";
+        return;
+    }
+
+    std::string Visit(const koopa_raw_binary_t &binary)
+    {
+        if (binary.op == KOOPA_RBO_EQ)
+        {
+            std::string first_value = Visit(binary.lhs);
+            std::string second_value = Visit(binary.rhs);
+            riscv_code += "  xor   " + first_value + ", " + first_value + ", " + second_value + "\n";
+            riscv_code += "  seqz  " + first_value + ", " + first_value + "\n";
+            return first_value;
+        }
+        else if (binary.op == KOOPA_RBO_SUB)
+        {
+            std::string new_register = NewRegister();
+            std::string first_value = Visit(binary.lhs);
+            std::string second_value = Visit(binary.rhs);
+            riscv_code += "  sub   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            return new_register;
+        }
+
+        std::string ret = "";
+        abort();
         return ret;
+    }
+
+    std::string GetRiscvCode()
+    {
+        return riscv_code;
     }
 
     ~Vistor()
