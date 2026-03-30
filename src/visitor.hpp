@@ -177,52 +177,136 @@ public:
 
     std::string Visit(const koopa_raw_binary_t &binary)
     {
-        if (binary.op == KOOPA_RBO_EQ)
+        std::string first_value = Visit(binary.lhs);
+        std::string second_value = Visit(binary.rhs);
+        if (binary.op == KOOPA_RBO_NOT_EQ)
         {
-            std::string first_value = Visit(binary.lhs);
-            std::string second_value = Visit(binary.rhs);
-            riscv_code += "  xor   " + first_value + ", " + first_value + ", " + second_value + "\n";
-            riscv_code += "  seqz  " + first_value + ", " + first_value + "\n";
-            return first_value;
+            std::string new_register = first_value;
+            if (first_value == "x0")
+            {
+                new_register = NewRegister();
+            }
+            riscv_code += "  xor   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            riscv_code += "  snez  " + new_register + ", " + new_register + "\n";
+            return new_register;
+        }
+        else if (binary.op == KOOPA_RBO_EQ)
+        {
+            std::string new_register = first_value;
+            if (first_value == "x0")
+            {
+                new_register = NewRegister();
+            }
+            riscv_code += "  xor   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            riscv_code += "  seqz  " + new_register + ", " + new_register + "\n";
+            return new_register;
+        }
+        else if (binary.op == KOOPA_RBO_GT)
+        {
+            std::string new_register = first_value;
+            if (first_value == "x0")
+            {
+                new_register = NewRegister();
+            }
+            riscv_code += "  sgt   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            return new_register;
+        }
+        else if (binary.op == KOOPA_RBO_LT)
+        {
+            std::string new_register = first_value;
+            if (first_value == "x0")
+            {
+                new_register = NewRegister();
+            }
+            riscv_code += "  slt   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            return new_register;
+        }
+        else if (binary.op == KOOPA_RBO_GE)
+        {
+            std::string new_register = first_value;
+            if (first_value == "x0")
+            {
+                new_register = NewRegister();
+            }
+            riscv_code += "  slt   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            riscv_code += "  seqz  " + new_register + ", " + new_register + "\n";
+            return new_register;
+        }
+        else if (binary.op == KOOPA_RBO_LE)
+        {
+            std::string new_register = first_value;
+            if (first_value == "x0")
+            {
+                new_register = NewRegister();
+            }
+            riscv_code += "  sgt   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            riscv_code += "  seqz  " + new_register + ", " + new_register + "\n";
+            return new_register;
         }
         else if (binary.op == KOOPA_RBO_ADD)
         {
-            std::string first_value = Visit(binary.lhs);
-            std::string second_value = Visit(binary.rhs);
             std::string new_register = NewRegister();
             riscv_code += "  add   " + new_register + ", " + first_value + ", " + second_value + "\n";
             return new_register;
         }
         else if (binary.op == KOOPA_RBO_SUB)
         {
-            std::string first_value = Visit(binary.lhs);
-            std::string second_value = Visit(binary.rhs);
             std::string new_register = NewRegister();
             riscv_code += "  sub   " + new_register + ", " + first_value + ", " + second_value + "\n";
             return new_register;
         }
         else if (binary.op == KOOPA_RBO_MUL)
         {
-            std::string first_value = Visit(binary.lhs);
-            std::string second_value = Visit(binary.rhs);
             std::string new_register = NewRegister();
             riscv_code += "  mul   " + new_register + ", " + first_value + ", " + second_value + "\n";
             return new_register;
         }
         else if (binary.op == KOOPA_RBO_DIV)
         {
-            std::string first_value = Visit(binary.lhs);
-            std::string second_value = Visit(binary.rhs);
             std::string new_register = NewRegister();
             riscv_code += "  div   " + new_register + ", " + first_value + ", " + second_value + "\n";
             return new_register;
         }
         else if (binary.op == KOOPA_RBO_MOD)
         {
-            std::string first_value = Visit(binary.lhs);
-            std::string second_value = Visit(binary.rhs);
             std::string new_register = NewRegister();
-            riscv_code += "  mod   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            riscv_code += "  rem   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            return new_register;
+        }
+        else if (binary.op == KOOPA_RBO_AND)
+        {
+            std::string new_register = NewRegister();
+            riscv_code += "  and   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            return new_register;
+        }
+        else if (binary.op == KOOPA_RBO_OR)
+        {
+            std::string new_register = NewRegister();
+            riscv_code += "  or    " + new_register + ", " + first_value + ", " + second_value + "\n";
+            return new_register;
+        }
+        else if (binary.op == KOOPA_RBO_XOR)
+        {
+            std::string new_register = NewRegister();
+            riscv_code += "  xor   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            return new_register;
+        }
+        else if (binary.op == KOOPA_RBO_SHL)
+        {
+            std::string new_register = NewRegister();
+            riscv_code += "  shl   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            return new_register;
+        }
+        else if (binary.op == KOOPA_RBO_SHL)
+        {
+            std::string new_register = NewRegister();
+            riscv_code += "  shr   " + new_register + ", " + first_value + ", " + second_value + "\n";
+            return new_register;
+        }
+        else if (binary.op == KOOPA_RBO_SAR)
+        {
+            std::string new_register = NewRegister();
+            riscv_code += "  sar   " + new_register + ", " + first_value + ", " + second_value + "\n";
             return new_register;
         }
 
