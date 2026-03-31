@@ -29,11 +29,28 @@ class BaseAST
 public:
     virtual ~BaseAST() = default;
     virtual void Dump() const = 0;
-    virtual std::string GenerateIR(IRBuilder &builder) const = 0;
+    virtual std::string GenerateIRExpr(IRBuilder &) const { return nullptr; }
+    virtual void GenerateIRStmt(IRBuilder &) const {}
 };
 
-// CompUnit 是 BaseAST
-class CompUnitAST : public BaseAST
+class BaseExpAST : public BaseAST
+{
+public:
+    virtual ~BaseExpAST() = default;
+    virtual void Dump() const = 0;
+    virtual std::string GenerateIRExpr(IRBuilder &) const = 0;
+};
+
+class BaseStmtAST : public BaseAST
+{
+public:
+    virtual ~BaseStmtAST() = default;
+    virtual void Dump() const = 0;
+    virtual void GenerateIRStmt(IRBuilder &) const = 0;
+};
+
+// CompUnit 是 BaseStmtAST
+class CompUnitAST : public BaseStmtAST
 {
 public:
     // 用智能指针管理对象
@@ -46,14 +63,14 @@ public:
         std::cout << " }";
     }
 
-    std::string GenerateIR(IRBuilder &builder) const override
+    void GenerateIRStmt(IRBuilder &builder) const override
     {
-        return func_def->GenerateIR(builder);
+        func_def->GenerateIRStmt(builder);
     }
 };
 
-// FuncDef 也是 BaseAST
-class FuncDefAST : public BaseAST
+// FuncDef 也是 BaseStmtAST
+class FuncDefAST : public BaseStmtAST
 {
 public:
     std::unique_ptr<BaseAST> func_type;
@@ -70,17 +87,16 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIR(IRBuilder &builder) const override
+    void GenerateIRStmt(IRBuilder &builder) const override
     {
         builder.Emit("fun @" + ident + "(): ");
-        func_type->GenerateIR(builder);
+        func_type->GenerateIRStmt(builder);
         builder.Emit(" ");
-        block->GenerateIR(builder);
-        return "";
+        block->GenerateIRStmt(builder);
     }
 };
 
-class FuncTypeAST : public BaseAST
+class FuncTypeAST : public BaseStmtAST
 {
 public:
     std::string func_type;
@@ -91,20 +107,19 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIR(IRBuilder &builder) const override
+    void GenerateIRStmt(IRBuilder &builder) const override
     {
 
         if (func_type == "int")
         {
             builder.Emit("i32");
-            return "";
         }
         else
             abort();
     }
 };
 
-class BlockAST : public BaseAST
+class BlockAST : public BaseStmtAST
 {
 public:
     std::unique_ptr<BaseAST> stmt;
@@ -115,18 +130,16 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIR(IRBuilder &builder) const override
+    void GenerateIRStmt(IRBuilder &builder) const override
     {
-        std::string ret = "";
         builder.Emit("{\n");
         builder.Emit("%entry:\n");
-        stmt->GenerateIR(builder);
+        stmt->GenerateIRStmt(builder);
         builder.Emit("}\n");
-        return ret;
     }
 };
 
-class StmtAST : public BaseAST
+class StmtAST : public BaseStmtAST
 {
 public:
     std::unique_ptr<BaseAST> exp;
@@ -137,14 +150,13 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIR(IRBuilder &builder) const override
+    void GenerateIRStmt(IRBuilder &builder) const override
     {
-        std::string ret = exp->GenerateIR(builder);
+        std::string ret = exp->GenerateIRExpr(builder);
         builder.Emit("  ret " + ret + "\n");
-        return ret;
     }
 };
-class ExpAST : public BaseAST
+class ExpAST : public BaseExpAST
 {
 public:
     std::unique_ptr<BaseAST> lor_exp;
@@ -155,13 +167,13 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIR(IRBuilder &builder) const override
+    std::string GenerateIRExpr(IRBuilder &builder) const override
     {
-        return lor_exp->GenerateIR(builder);
+        return lor_exp->GenerateIRExpr(builder);
     }
 };
 
-class MulExpAST : public BaseAST
+class MulExpAST : public BaseExpAST
 {
 public:
     std::unique_ptr<BaseAST> mul_exp;
@@ -180,32 +192,32 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIR(IRBuilder &builder) const override
+    std::string GenerateIRExpr(IRBuilder &builder) const override
     {
         if (op == "")
         {
-            return unar_exp->GenerateIR(builder);
+            return unar_exp->GenerateIRExpr(builder);
         }
         else if (op == "*")
         {
-            std::string mul_exp_value = mul_exp->GenerateIR(builder);
-            std::string unar_exp_value = unar_exp->GenerateIR(builder);
+            std::string mul_exp_value = mul_exp->GenerateIRExpr(builder);
+            std::string unar_exp_value = unar_exp->GenerateIRExpr(builder);
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = mul " + mul_exp_value + ", " + unar_exp_value + "\n");
             return reg;
         }
         else if (op == "/")
         {
-            std::string mul_exp_value = mul_exp->GenerateIR(builder);
-            std::string unar_exp_value = unar_exp->GenerateIR(builder);
+            std::string mul_exp_value = mul_exp->GenerateIRExpr(builder);
+            std::string unar_exp_value = unar_exp->GenerateIRExpr(builder);
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = div " + mul_exp_value + ", " + unar_exp_value + "\n");
             return reg;
         }
         else if (op == "%")
         {
-            std::string mul_exp_value = mul_exp->GenerateIR(builder);
-            std::string unar_exp_value = unar_exp->GenerateIR(builder);
+            std::string mul_exp_value = mul_exp->GenerateIRExpr(builder);
+            std::string unar_exp_value = unar_exp->GenerateIRExpr(builder);
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = mod " + mul_exp_value + ", " + unar_exp_value + "\n");
             return reg;
@@ -217,7 +229,7 @@ public:
     }
 };
 
-class AddExpAST : public BaseAST
+class AddExpAST : public BaseExpAST
 {
 public:
     std::unique_ptr<BaseAST> add_exp;
@@ -235,24 +247,24 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIR(IRBuilder &builder) const override
+    std::string GenerateIRExpr(IRBuilder &builder) const override
     {
         if (op == "")
         {
-            return mul_exp->GenerateIR(builder);
+            return mul_exp->GenerateIRExpr(builder);
         }
         else if (op == "+")
         {
-            std::string mul_exp_value = add_exp->GenerateIR(builder);
-            std::string unar_exp_value = mul_exp->GenerateIR(builder);
+            std::string mul_exp_value = add_exp->GenerateIRExpr(builder);
+            std::string unar_exp_value = mul_exp->GenerateIRExpr(builder);
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = add " + mul_exp_value + ", " + unar_exp_value + "\n");
             return reg;
         }
         else if (op == "-")
         {
-            std::string mul_exp_value = add_exp->GenerateIR(builder);
-            std::string unar_exp_value = mul_exp->GenerateIR(builder);
+            std::string mul_exp_value = add_exp->GenerateIRExpr(builder);
+            std::string unar_exp_value = mul_exp->GenerateIRExpr(builder);
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = sub " + mul_exp_value + ", " + unar_exp_value + "\n");
             return reg;
@@ -264,7 +276,7 @@ public:
     }
 };
 
-class RelExpAST : public BaseAST
+class RelExpAST : public BaseExpAST
 {
 public:
     std::unique_ptr<BaseAST> rel_exp;
@@ -282,40 +294,40 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIR(IRBuilder &builder) const override
+    std::string GenerateIRExpr(IRBuilder &builder) const override
     {
         if (op == "")
         {
-            return add_exp->GenerateIR(builder);
+            return add_exp->GenerateIRExpr(builder);
         }
         else if (op == "<")
         {
-            std::string rel_exp_value = rel_exp->GenerateIR(builder);
-            std::string add_exp_value = add_exp->GenerateIR(builder);
+            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder);
+            std::string add_exp_value = add_exp->GenerateIRExpr(builder);
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = lt " + rel_exp_value + ", " + add_exp_value + "\n");
             return reg;
         }
         else if (op == ">")
         {
-            std::string rel_exp_value = rel_exp->GenerateIR(builder);
-            std::string add_exp_value = add_exp->GenerateIR(builder);
+            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder);
+            std::string add_exp_value = add_exp->GenerateIRExpr(builder);
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = gt " + rel_exp_value + ", " + add_exp_value + "\n");
             return reg;
         }
         else if (op == "<=")
         {
-            std::string rel_exp_value = rel_exp->GenerateIR(builder);
-            std::string add_exp_value = add_exp->GenerateIR(builder);
+            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder);
+            std::string add_exp_value = add_exp->GenerateIRExpr(builder);
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = le " + rel_exp_value + ", " + add_exp_value + "\n");
             return reg;
         }
         else if (op == ">=")
         {
-            std::string rel_exp_value = rel_exp->GenerateIR(builder);
-            std::string add_exp_value = add_exp->GenerateIR(builder);
+            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder);
+            std::string add_exp_value = add_exp->GenerateIRExpr(builder);
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = ge " + rel_exp_value + ", " + add_exp_value + "\n");
             return reg;
@@ -327,7 +339,7 @@ public:
     }
 };
 
-class EqExpAST : public BaseAST
+class EqExpAST : public BaseExpAST
 {
 public:
     std::unique_ptr<BaseAST> eq_exp;
@@ -345,24 +357,24 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIR(IRBuilder &builder) const override
+    std::string GenerateIRExpr(IRBuilder &builder) const override
     {
         if (op == "")
         {
-            return rel_exp->GenerateIR(builder);
+            return rel_exp->GenerateIRExpr(builder);
         }
         else if (op == "==")
         {
-            std::string eq_exp_value = eq_exp->GenerateIR(builder);
-            std::string rel_exp_value = rel_exp->GenerateIR(builder);
+            std::string eq_exp_value = eq_exp->GenerateIRExpr(builder);
+            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder);
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = eq " + eq_exp_value + ", " + rel_exp_value + "\n");
             return reg;
         }
         else if (op == "!=")
         {
-            std::string eq_exp_value = eq_exp->GenerateIR(builder);
-            std::string rel_exp_value = rel_exp->GenerateIR(builder);
+            std::string eq_exp_value = eq_exp->GenerateIRExpr(builder);
+            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder);
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = ne " + eq_exp_value + ", " + rel_exp_value + "\n");
             return reg;
@@ -374,7 +386,7 @@ public:
     }
 };
 
-class LAndExpAST : public BaseAST
+class LAndExpAST : public BaseExpAST
 {
 public:
     std::unique_ptr<BaseAST> land_exp;
@@ -392,16 +404,16 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIR(IRBuilder &builder) const override
+    std::string GenerateIRExpr(IRBuilder &builder) const override
     {
         if (op == "")
         {
-            return eq_exp->GenerateIR(builder);
+            return eq_exp->GenerateIRExpr(builder);
         }
         else if (op == "&&")
         {
-            std::string land_exp_value = land_exp->GenerateIR(builder);
-            std::string eq_exp_value = eq_exp->GenerateIR(builder);
+            std::string land_exp_value = land_exp->GenerateIRExpr(builder);
+            std::string eq_exp_value = eq_exp->GenerateIRExpr(builder);
             std::string reg1 = builder.NewReg();
             builder.Emit("  " + reg1 + " = ne " + land_exp_value + ", " + "0" + "\n");
             std::string reg2 = builder.NewReg();
@@ -417,7 +429,7 @@ public:
     }
 };
 
-class LOrExpAST : public BaseAST
+class LOrExpAST : public BaseExpAST
 {
 public:
     std::unique_ptr<BaseAST> lor_exp;
@@ -435,18 +447,17 @@ public:
         std::cout << " } ";
     }
 
-    std::string
-    GenerateIR(IRBuilder &builder) const override
+    std::string GenerateIRExpr(IRBuilder &builder) const override
     {
         if (op == "")
         {
-            return land_exp->GenerateIR(builder);
+            return land_exp->GenerateIRExpr(builder);
         }
         else if (op == "||")
         {
 
-            std::string lor_exp_value = lor_exp->GenerateIR(builder);
-            std::string land_exp_value = land_exp->GenerateIR(builder);
+            std::string lor_exp_value = lor_exp->GenerateIRExpr(builder);
+            std::string land_exp_value = land_exp->GenerateIRExpr(builder);
             std::string reg1 = builder.NewReg();
             builder.Emit("  " + reg1 + " = ne " + lor_exp_value + ", " + "0" + "\n");
             std::string reg2 = builder.NewReg();
@@ -462,7 +473,7 @@ public:
     }
 };
 
-class UnaryExpAST : public BaseAST
+class UnaryExpAST : public BaseExpAST
 {
 public:
     std::string unaryOp;
@@ -476,9 +487,9 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIR(IRBuilder &builder) const override
+    std::string GenerateIRExpr(IRBuilder &builder) const override
     {
-        std::string value = exp_ast->GenerateIR(builder);
+        std::string value = exp_ast->GenerateIRExpr(builder);
         if (unaryOp == "+")
         {
             return value;
@@ -504,7 +515,7 @@ public:
     }
 };
 
-class PrimaryExpAST : public BaseAST
+class PrimaryExpAST : public BaseExpAST
 {
 public:
     std::unique_ptr<BaseAST> exp_ast;
@@ -515,13 +526,13 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIR(IRBuilder &builder) const override
+    std::string GenerateIRExpr(IRBuilder &builder) const override
     {
-        return exp_ast->GenerateIR(builder);
+        return exp_ast->GenerateIRExpr(builder);
     }
 };
 
-class ParenExpAST : public BaseAST
+class ParenExpAST : public BaseExpAST
 {
 public:
     std::unique_ptr<BaseAST> exp_ast;
@@ -534,13 +545,13 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIR(IRBuilder &builder) const override
+    std::string GenerateIRExpr(IRBuilder &builder) const override
     {
-        return exp_ast->GenerateIR(builder);
+        return exp_ast->GenerateIRExpr(builder);
     }
 };
 
-class NumberExpAST : public BaseAST
+class NumberExpAST : public BaseExpAST
 {
 public:
     int number;
@@ -551,7 +562,7 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIR(IRBuilder &builder) const override
+    std::string GenerateIRExpr(IRBuilder &builder) const override
     {
         return std::to_string(number);
     }

@@ -40,7 +40,7 @@ int main(int argc, const char *argv[])
   cout << endl;
 
   IRBuilder builder;
-  ast->GenerateIR(builder);
+  ast->GenerateIRStmt(builder);
   string ir = builder.GetIR();
   FILE *fp = fopen(output, "w");
   if (!fp)
