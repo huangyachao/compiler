@@ -37,6 +37,7 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 {MultiLineComment}   { /* 忽略, 不做任何操作 */ }
 
 "int"           { return INT; }
+"const"         { return CONST; }
 "return"        { return RETURN; }
 "+"             { return PLUS; }
 "-"             { return MINUS; }
