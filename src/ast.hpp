@@ -2,6 +2,33 @@
 #include <memory>
 #include <iostream>
 
+class IRValue
+{
+private:
+    bool is_const;
+    int const_val;
+    std::string name;
+
+public:
+    IRValue(bool is_const, int const_val, std::string name)
+    {
+        this->is_const = is_const;
+        this->const_val = const_val;
+        this->name = name;
+    }
+    std::string ToString()
+    {
+        if (is_const)
+        {
+            return std::to_string(const_val);
+        }
+        else
+        {
+            return name;
+        }
+    }
+};
+
 class IRBuilder
 {
 public:
@@ -29,7 +56,7 @@ class BaseAST
 public:
     virtual ~BaseAST() = default;
     virtual void Dump() const = 0;
-    virtual std::string GenerateIRExpr(IRBuilder &) const { return nullptr; }
+    virtual IRValue GenerateIRExpr(IRBuilder &) const { return IRValue(false, 0, ""); }
     virtual void GenerateIRStmt(IRBuilder &) const {}
 };
 
@@ -38,7 +65,7 @@ class BaseExpAST : public BaseAST
 public:
     virtual ~BaseExpAST() = default;
     virtual void Dump() const = 0;
-    virtual std::string GenerateIRExpr(IRBuilder &) const = 0;
+    virtual IRValue GenerateIRExpr(IRBuilder &) const = 0;
 };
 
 class BaseStmtAST : public BaseAST
@@ -152,7 +179,7 @@ public:
 
     void GenerateIRStmt(IRBuilder &builder) const override
     {
-        std::string ret = exp->GenerateIRExpr(builder);
+        std::string ret = exp->GenerateIRExpr(builder).ToString();
         builder.Emit("  ret " + ret + "\n");
     }
 };
@@ -167,7 +194,7 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIRExpr(IRBuilder &builder) const override
+    IRValue GenerateIRExpr(IRBuilder &builder) const override
     {
         return lor_exp->GenerateIRExpr(builder);
     }
@@ -192,7 +219,7 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIRExpr(IRBuilder &builder) const override
+    IRValue GenerateIRExpr(IRBuilder &builder) const override
     {
         if (op == "")
         {
@@ -200,27 +227,27 @@ public:
         }
         else if (op == "*")
         {
-            std::string mul_exp_value = mul_exp->GenerateIRExpr(builder);
-            std::string unar_exp_value = unar_exp->GenerateIRExpr(builder);
+            std::string mul_exp_value = mul_exp->GenerateIRExpr(builder).ToString();
+            std::string unar_exp_value = unar_exp->GenerateIRExpr(builder).ToString();
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = mul " + mul_exp_value + ", " + unar_exp_value + "\n");
-            return reg;
+            return {false, 0, reg};
         }
         else if (op == "/")
         {
-            std::string mul_exp_value = mul_exp->GenerateIRExpr(builder);
-            std::string unar_exp_value = unar_exp->GenerateIRExpr(builder);
+            std::string mul_exp_value = mul_exp->GenerateIRExpr(builder).ToString();
+            std::string unar_exp_value = unar_exp->GenerateIRExpr(builder).ToString();
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = div " + mul_exp_value + ", " + unar_exp_value + "\n");
-            return reg;
+            return {false, 0, reg};
         }
         else if (op == "%")
         {
-            std::string mul_exp_value = mul_exp->GenerateIRExpr(builder);
-            std::string unar_exp_value = unar_exp->GenerateIRExpr(builder);
+            std::string mul_exp_value = mul_exp->GenerateIRExpr(builder).ToString();
+            std::string unar_exp_value = unar_exp->GenerateIRExpr(builder).ToString();
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = mod " + mul_exp_value + ", " + unar_exp_value + "\n");
-            return reg;
+            return {false, 0, reg};
         }
         else
         {
@@ -247,7 +274,7 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIRExpr(IRBuilder &builder) const override
+    IRValue GenerateIRExpr(IRBuilder &builder) const override
     {
         if (op == "")
         {
@@ -255,19 +282,19 @@ public:
         }
         else if (op == "+")
         {
-            std::string mul_exp_value = add_exp->GenerateIRExpr(builder);
-            std::string unar_exp_value = mul_exp->GenerateIRExpr(builder);
+            std::string mul_exp_value = add_exp->GenerateIRExpr(builder).ToString();
+            std::string unar_exp_value = mul_exp->GenerateIRExpr(builder).ToString();
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = add " + mul_exp_value + ", " + unar_exp_value + "\n");
-            return reg;
+            return {false, 0, reg};
         }
         else if (op == "-")
         {
-            std::string mul_exp_value = add_exp->GenerateIRExpr(builder);
-            std::string unar_exp_value = mul_exp->GenerateIRExpr(builder);
+            std::string mul_exp_value = add_exp->GenerateIRExpr(builder).ToString();
+            std::string unar_exp_value = mul_exp->GenerateIRExpr(builder).ToString();
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = sub " + mul_exp_value + ", " + unar_exp_value + "\n");
-            return reg;
+            return {false, 0, reg};
         }
         else
         {
@@ -294,7 +321,7 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIRExpr(IRBuilder &builder) const override
+    IRValue GenerateIRExpr(IRBuilder &builder) const override
     {
         if (op == "")
         {
@@ -302,35 +329,35 @@ public:
         }
         else if (op == "<")
         {
-            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder);
-            std::string add_exp_value = add_exp->GenerateIRExpr(builder);
+            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder).ToString();
+            std::string add_exp_value = add_exp->GenerateIRExpr(builder).ToString();
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = lt " + rel_exp_value + ", " + add_exp_value + "\n");
-            return reg;
+            return {false, 0, reg};
         }
         else if (op == ">")
         {
-            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder);
-            std::string add_exp_value = add_exp->GenerateIRExpr(builder);
+            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder).ToString();
+            std::string add_exp_value = add_exp->GenerateIRExpr(builder).ToString();
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = gt " + rel_exp_value + ", " + add_exp_value + "\n");
-            return reg;
+            return {false, 0, reg};
         }
         else if (op == "<=")
         {
-            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder);
-            std::string add_exp_value = add_exp->GenerateIRExpr(builder);
+            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder).ToString();
+            std::string add_exp_value = add_exp->GenerateIRExpr(builder).ToString();
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = le " + rel_exp_value + ", " + add_exp_value + "\n");
-            return reg;
+            return {false, 0, reg};
         }
         else if (op == ">=")
         {
-            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder);
-            std::string add_exp_value = add_exp->GenerateIRExpr(builder);
+            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder).ToString();
+            std::string add_exp_value = add_exp->GenerateIRExpr(builder).ToString();
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = ge " + rel_exp_value + ", " + add_exp_value + "\n");
-            return reg;
+            return {false, 0, reg};
         }
         else
         {
@@ -357,7 +384,7 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIRExpr(IRBuilder &builder) const override
+    IRValue GenerateIRExpr(IRBuilder &builder) const override
     {
         if (op == "")
         {
@@ -365,19 +392,19 @@ public:
         }
         else if (op == "==")
         {
-            std::string eq_exp_value = eq_exp->GenerateIRExpr(builder);
-            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder);
+            std::string eq_exp_value = eq_exp->GenerateIRExpr(builder).ToString();
+            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder).ToString();
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = eq " + eq_exp_value + ", " + rel_exp_value + "\n");
-            return reg;
+            return {false, 0, reg};
         }
         else if (op == "!=")
         {
-            std::string eq_exp_value = eq_exp->GenerateIRExpr(builder);
-            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder);
+            std::string eq_exp_value = eq_exp->GenerateIRExpr(builder).ToString();
+            std::string rel_exp_value = rel_exp->GenerateIRExpr(builder).ToString();
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = ne " + eq_exp_value + ", " + rel_exp_value + "\n");
-            return reg;
+            return {false, 0, reg};
         }
         else
         {
@@ -404,7 +431,7 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIRExpr(IRBuilder &builder) const override
+    IRValue GenerateIRExpr(IRBuilder &builder) const override
     {
         if (op == "")
         {
@@ -412,15 +439,15 @@ public:
         }
         else if (op == "&&")
         {
-            std::string land_exp_value = land_exp->GenerateIRExpr(builder);
-            std::string eq_exp_value = eq_exp->GenerateIRExpr(builder);
+            std::string land_exp_value = land_exp->GenerateIRExpr(builder).ToString();
+            std::string eq_exp_value = eq_exp->GenerateIRExpr(builder).ToString();
             std::string reg1 = builder.NewReg();
             builder.Emit("  " + reg1 + " = ne " + land_exp_value + ", " + "0" + "\n");
             std::string reg2 = builder.NewReg();
             builder.Emit("  " + reg2 + " = ne " + eq_exp_value + ", " + "0" + "\n");
             std::string reg3 = builder.NewReg();
             builder.Emit("  " + reg3 + " = and " + reg1 + ", " + reg2 + "\n");
-            return reg3;
+            return {false, 0, reg3};
         }
         else
         {
@@ -447,7 +474,7 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIRExpr(IRBuilder &builder) const override
+    IRValue GenerateIRExpr(IRBuilder &builder) const override
     {
         if (op == "")
         {
@@ -456,15 +483,15 @@ public:
         else if (op == "||")
         {
 
-            std::string lor_exp_value = lor_exp->GenerateIRExpr(builder);
-            std::string land_exp_value = land_exp->GenerateIRExpr(builder);
+            std::string lor_exp_value = lor_exp->GenerateIRExpr(builder).ToString();
+            std::string land_exp_value = land_exp->GenerateIRExpr(builder).ToString();
             std::string reg1 = builder.NewReg();
             builder.Emit("  " + reg1 + " = ne " + lor_exp_value + ", " + "0" + "\n");
             std::string reg2 = builder.NewReg();
             builder.Emit("  " + reg2 + " = ne " + land_exp_value + ", " + "0" + "\n");
             std::string reg3 = builder.NewReg();
             builder.Emit("  " + reg3 + " = or " + reg1 + ", " + reg2 + "\n");
-            return reg3;
+            return {false, 0, reg3};
         }
         else
         {
@@ -487,30 +514,31 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIRExpr(IRBuilder &builder) const override
+    IRValue GenerateIRExpr(IRBuilder &builder) const override
     {
-        std::string value = exp_ast->GenerateIRExpr(builder);
+        IRValue ir_value = exp_ast->GenerateIRExpr(builder);
+        std::string value = ir_value.ToString();
         if (unaryOp == "+")
         {
-            return value;
+            return ir_value;
         }
         else if (unaryOp == "-")
         {
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = sub 0, " + value + "\n");
-            return reg;
+            return {false, 0, reg};
         }
         else if (unaryOp == "!")
         {
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = eq " + value + ", 0" + +"\n");
-            return reg;
+            return {false, 0, reg};
         }
         else
         {
             if (unaryOp != "")
                 abort();
-            return value;
+            return ir_value;
         }
     }
 };
@@ -526,7 +554,7 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIRExpr(IRBuilder &builder) const override
+    IRValue GenerateIRExpr(IRBuilder &builder) const override
     {
         return exp_ast->GenerateIRExpr(builder);
     }
@@ -545,7 +573,7 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIRExpr(IRBuilder &builder) const override
+    IRValue GenerateIRExpr(IRBuilder &builder) const override
     {
         return exp_ast->GenerateIRExpr(builder);
     }
@@ -562,8 +590,8 @@ public:
         std::cout << " } ";
     }
 
-    std::string GenerateIRExpr(IRBuilder &builder) const override
+    IRValue GenerateIRExpr(IRBuilder &builder) const override
     {
-        return std::to_string(number);
+        return {true, number, ""};
     }
 };
