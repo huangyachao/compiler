@@ -3,19 +3,20 @@
 #include <iostream>
 #include <vector>
 #include <unordered_map>
+#include <variant>
 
 class SymbolTable
 {
 private:
-    std::unordered_map<std::string, int> table;
+    std::unordered_map<std::string, std::string> table;
 
 public:
-    void Insert(std::string name, int value)
+    void Insert(std::string name, std::string value)
     {
         table[name] = value;
     }
 
-    int Get(std::string name)
+    std::string Get(std::string name)
     {
         return table[name];
     }
@@ -23,39 +24,41 @@ public:
 
 extern SymbolTable global_symbol_table;
 
+enum class Type
+{
+    Int,
+    Reigster,
+    Variable,
+    String,
+    Unknown,
+};
+
 class IRValue
 {
 private:
-    bool is_const;
-    int const_val;
-    std::string name;
+    Type type;
+    // std::variant<int, std::string> data;
+    std::string data;
 
 public:
-    IRValue(bool is_const, int const_val, std::string name)
+    IRValue(Type type, std::string data)
     {
-        this->is_const = is_const;
-        this->const_val = const_val;
-        this->name = name;
+        this->type = type;
+        this->data = data;
     }
+
     std::string ToString()
     {
-        if (is_const)
-        {
-            return std::to_string(const_val);
-        }
-        else
-        {
-            return name;
-        }
+        return data;
     }
     bool IsConst()
     {
-        return is_const;
+        return type == Type::Int;
     }
 
     int GetConstValue()
     {
-        return const_val;
+        return std::stoi(data);
     }
 };
 
@@ -86,7 +89,7 @@ class BaseAST
 public:
     virtual ~BaseAST() = default;
     virtual void Dump() const = 0;
-    virtual IRValue GenerateIRExpr(IRBuilder &) const { return IRValue(false, 0, ""); }
+    virtual IRValue GenerateIRExpr(IRBuilder &) const { return IRValue(Type::Unknown, ""); }
     virtual void GenerateIRStmt(IRBuilder &) const {}
 };
 
@@ -275,7 +278,7 @@ public:
 
     IRValue GenerateIRExpr(IRBuilder &builder) const override
     {
-        return {false, 0, btype};
+        return IRValue(Type::String, btype);
     }
 };
 
@@ -296,7 +299,7 @@ public:
     void GenerateIRStmt(IRBuilder &builder) const override
     {
         std::string value = const_init_val->GenerateIRExpr(builder).ToString();
-        global_symbol_table.Insert(ident, std::stoi(value));
+        global_symbol_table.Insert(ident, value);
     }
 };
 
@@ -347,7 +350,8 @@ public:
 
     IRValue GenerateIRExpr(IRBuilder &builder) const override
     {
-        return {true, global_symbol_table.Get(ident), ""};
+        std::string value = global_symbol_table.Get(ident);
+        return IRValue(Type::Int, value);
     }
 };
 class StmtAST : public BaseStmtAST
@@ -416,13 +420,13 @@ public:
             if (mul_exp_value.IsConst() && unar_exp_value.IsConst())
             {
                 int result = mul_exp_value.GetConstValue() * unar_exp_value.GetConstValue();
-                return {true, result, ""};
+                return IRValue(Type::Int, std::to_string(result));
             }
             else
             {
                 std::string reg = builder.NewReg();
                 builder.Emit("  " + reg + " = mul " + mul_exp_value.ToString() + ", " + unar_exp_value.ToString() + "\n");
-                return {false, 0, reg};
+                return IRValue(Type::Reigster, reg);
             }
         }
         else if (op == "/")
@@ -432,13 +436,13 @@ public:
             if (mul_exp_value.IsConst() && unar_exp_value.IsConst())
             {
                 int result = mul_exp_value.GetConstValue() / unar_exp_value.GetConstValue();
-                return {true, result, ""};
+                return IRValue(Type::Int, std::to_string(result));
             }
             else
             {
                 std::string reg = builder.NewReg();
                 builder.Emit("  " + reg + " = div " + mul_exp_value.ToString() + ", " + unar_exp_value.ToString() + "\n");
-                return {false, 0, reg};
+                return IRValue(Type::Reigster, reg);
             }
         }
         else if (op == "%")
@@ -448,13 +452,13 @@ public:
             if (mul_exp_value.IsConst() && unar_exp_value.IsConst())
             {
                 int result = mul_exp_value.GetConstValue() % unar_exp_value.GetConstValue();
-                return {true, result, ""};
+                return IRValue(Type::Int, std::to_string(result));
             }
             else
             {
                 std::string reg = builder.NewReg();
                 builder.Emit("  " + reg + " = mod " + mul_exp_value.ToString() + ", " + unar_exp_value.ToString() + "\n");
-                return {false, 0, reg};
+                return IRValue(Type::Reigster, reg);
             }
         }
         else
@@ -495,11 +499,11 @@ public:
             if (add_exp_value.IsConst() && mul_exp_value.IsConst())
             {
                 int result = add_exp_value.GetConstValue() + mul_exp_value.GetConstValue();
-                return {true, result, ""};
+                return IRValue(Type::Int, std::to_string(result));
             }
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = add " + add_exp_value.ToString() + ", " + mul_exp_value.ToString() + "\n");
-            return {false, 0, reg};
+            return IRValue(Type::Reigster, reg);
         }
         else if (op == "-")
         {
@@ -508,11 +512,11 @@ public:
             if (add_exp_value.IsConst() && mul_exp_value.IsConst())
             {
                 int result = add_exp_value.GetConstValue() - mul_exp_value.GetConstValue();
-                return {true, result, ""};
+                return IRValue(Type::Int, std::to_string(result));
             }
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = sub " + add_exp_value.ToString() + ", " + mul_exp_value.ToString() + "\n");
-            return {false, 0, reg};
+            return IRValue(Type::Reigster, reg);
         }
         else
         {
@@ -552,11 +556,11 @@ public:
             if (rel_exp_value.IsConst() && add_exp_value.IsConst())
             {
                 int result = rel_exp_value.GetConstValue() < add_exp_value.GetConstValue();
-                return {true, result, ""};
+                return IRValue(Type::Int, std::to_string(result));
             }
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = lt " + rel_exp_value.ToString() + ", " + add_exp_value.ToString() + "\n");
-            return {false, 0, reg};
+            return IRValue(Type::Reigster, reg);
         }
         else if (op == ">")
         {
@@ -565,11 +569,11 @@ public:
             if (rel_exp_value.IsConst() && add_exp_value.IsConst())
             {
                 int result = rel_exp_value.GetConstValue() > add_exp_value.GetConstValue();
-                return {true, result, ""};
+                return IRValue(Type::Int, std::to_string(result));
             }
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = gt " + rel_exp_value.ToString() + ", " + add_exp_value.ToString() + "\n");
-            return {false, 0, reg};
+            return IRValue(Type::Reigster, reg);
         }
         else if (op == "<=")
         {
@@ -578,11 +582,11 @@ public:
             if (rel_exp_value.IsConst() && add_exp_value.IsConst())
             {
                 int result = rel_exp_value.GetConstValue() <= add_exp_value.GetConstValue();
-                return {true, result, ""};
+                return IRValue(Type::Int, std::to_string(result));
             }
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = le " + rel_exp_value.ToString() + ", " + add_exp_value.ToString() + "\n");
-            return {false, 0, reg};
+            return IRValue(Type::Reigster, reg);
         }
         else if (op == ">=")
         {
@@ -591,11 +595,11 @@ public:
             if (rel_exp_value.IsConst() && add_exp_value.IsConst())
             {
                 int result = rel_exp_value.GetConstValue() >= add_exp_value.GetConstValue();
-                return {true, result, ""};
+                return IRValue(Type::Int, std::to_string(result));
             }
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = ge " + rel_exp_value.ToString() + ", " + add_exp_value.ToString() + "\n");
-            return {false, 0, reg};
+            return IRValue(Type::Reigster, reg);
         }
         else
         {
@@ -636,11 +640,11 @@ public:
             if (eq_exp_value.IsConst() && rel_exp_value.IsConst())
             {
                 int result = eq_exp_value.GetConstValue() == rel_exp_value.GetConstValue();
-                return {true, result, ""};
+                return IRValue(Type::Int, std::to_string(result));
             }
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = eq " + eq_exp_value.ToString() + ", " + rel_exp_value.ToString() + "\n");
-            return {false, 0, reg};
+            return IRValue(Type::Reigster, reg);
         }
         else if (op == "!=")
         {
@@ -649,11 +653,11 @@ public:
             if (eq_exp_value.IsConst() && rel_exp_value.IsConst())
             {
                 int result = eq_exp_value.GetConstValue() != rel_exp_value.GetConstValue();
-                return {true, result, ""};
+                return IRValue(Type::Int, std::to_string(result));
             }
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = ne " + eq_exp_value.ToString() + ", " + rel_exp_value.ToString() + "\n");
-            return {false, 0, reg};
+            return IRValue(Type::Reigster, reg);
         }
         else
         {
@@ -693,7 +697,7 @@ public:
             if (land_exp_value.IsConst() && eq_exp_value.IsConst())
             {
                 int result = land_exp_value.GetConstValue() && eq_exp_value.GetConstValue();
-                return {true, result, ""};
+                return IRValue(Type::Int, std::to_string(result));
             }
             std::string reg1 = builder.NewReg();
             builder.Emit("  " + reg1 + " = ne " + land_exp_value.ToString() + ", " + "0" + "\n");
@@ -701,7 +705,7 @@ public:
             builder.Emit("  " + reg2 + " = ne " + eq_exp_value.ToString() + ", " + "0" + "\n");
             std::string reg3 = builder.NewReg();
             builder.Emit("  " + reg3 + " = and " + reg1 + ", " + reg2 + "\n");
-            return {false, 0, reg3};
+            return IRValue(Type::Reigster, reg3);
         }
         else
         {
@@ -741,7 +745,7 @@ public:
             if (lor_exp_value.IsConst() && land_exp_value.IsConst())
             {
                 int result = lor_exp_value.GetConstValue() || land_exp_value.GetConstValue();
-                return {true, result, ""};
+                return IRValue(Type::Int, std::to_string(result));
             }
             std::string reg1 = builder.NewReg();
             builder.Emit("  " + reg1 + " = ne " + lor_exp_value.ToString() + ", " + "0" + "\n");
@@ -749,7 +753,7 @@ public:
             builder.Emit("  " + reg2 + " = ne " + land_exp_value.ToString() + ", " + "0" + "\n");
             std::string reg3 = builder.NewReg();
             builder.Emit("  " + reg3 + " = or " + reg1 + ", " + reg2 + "\n");
-            return {false, 0, reg3};
+            return IRValue(Type::Reigster, reg3);
         }
         else
         {
@@ -784,13 +788,13 @@ public:
         {
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = sub 0, " + value + "\n");
-            return {false, 0, reg};
+            return IRValue(Type::Reigster, reg);
         }
         else if (unaryOp == "!")
         {
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = eq " + value + ", 0" + +"\n");
-            return {false, 0, reg};
+            return IRValue(Type::Reigster, reg);
         }
         else
         {
@@ -850,6 +854,6 @@ public:
 
     IRValue GenerateIRExpr(IRBuilder &builder) const override
     {
-        return {true, number, ""};
+        return IRValue(Type::Int, std::to_string(number));
     }
 };
