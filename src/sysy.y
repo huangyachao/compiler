@@ -248,12 +248,48 @@ Stmt
     auto ast = new StmtAST();
     ast->lval = unique_ptr<BaseAST>($1);
     ast->exp = unique_ptr<BaseAST>($3);
+    ast->block = nullptr;
+    ast->is_return = false;
+    $$ = ast;
+  }
+  | ';' {
+    auto ast = new StmtAST();
+    ast->lval = nullptr;
+    ast->exp = nullptr;
+    ast->block = nullptr;
+    ast->is_return = false;
+    $$ = ast;
+  }
+  | Exp ';' {
+    auto ast = new StmtAST();
+    ast->lval = nullptr;
+    ast->exp = unique_ptr<BaseAST>($1);
+    ast->block = nullptr;
+    ast->is_return = false;
+    $$ = ast;
+  }
+  | Block {
+    auto ast = new StmtAST();
+    ast->lval = nullptr;
+    ast->exp = nullptr;
+    ast->block = unique_ptr<BaseAST>($1);
+    ast->is_return = false;
     $$ = ast;
   }
   | RETURN Exp ';' {
     auto ast = new StmtAST();
     ast->lval = nullptr;
     ast->exp = unique_ptr<BaseAST>($2);
+    ast->block = nullptr;
+    ast->is_return = true;
+    $$ = ast;
+  }
+  | RETURN ';' {
+    auto ast = new StmtAST();
+    ast->lval = nullptr;
+    ast->exp = nullptr;
+    ast->block = nullptr;
+    ast->is_return = true;
     $$ = ast;
   }
   ;

@@ -55,6 +55,7 @@ enum class SymbolKind
 {
     Const,
     Var,
+    Unknown,
 };
 struct Symbol
 {
@@ -65,17 +66,53 @@ struct Symbol
 class SymbolTable
 {
 private:
-    std::unordered_map<std::string, Symbol> table;
+    std::vector<std::unordered_map<std::string, Symbol>> table_list;
+    std::unordered_map<std::string, int> name_count;
 
 public:
+    SymbolTable()
+    {
+        table_list.push_back({});
+    }
+
+    void CreateNewSymbolTable()
+    {
+        table_list.push_back({});
+    }
+
+    void DestroySymbolTable()
+    {
+        table_list.pop_back();
+    }
+
     void Insert(std::string name, Symbol value)
     {
+        auto &table = table_list[table_list.size() - 1];
+        // value.value += "_" + std::to_string(table_list.size());
         table[name] = value;
     }
 
     Symbol Get(std::string name)
     {
-        return table[name];
+        for (int i = table_list.size() - 1; i >= 0; --i)
+        {
+            auto table = table_list[i];
+            if (table.count(name) > 0)
+            {
+                return table[name];
+            }
+        }
+        abort();
+    }
+
+    void AddCount(std::string name)
+    {
+        ++name_count[name];
+    }
+
+    int GetCount(std::string name)
+    {
+        return name_count[name];
     }
 };
 
@@ -364,8 +401,10 @@ public:
     {
         builder.Emit("fun @" + ident + "(): ");
         func_type->GenerateIRStmt(builder);
-        builder.Emit(" ");
+        builder.Emit(" {\n");
+        builder.Emit("%entry:\n");
         block->GenerateIRStmt(builder);
+        builder.Emit("}\n");
     }
 };
 
@@ -408,13 +447,12 @@ public:
 
     void GenerateIRStmt(IRBuilder &builder) const override
     {
-        builder.Emit("{\n");
-        builder.Emit("%entry:\n");
+        global_symbol_table.CreateNewSymbolTable();
         for (const auto &item : block_items)
         {
             item->GenerateIRStmt(builder);
         }
-        builder.Emit("}\n");
+        global_symbol_table.DestroySymbolTable();
     }
 };
 
@@ -576,13 +614,16 @@ public:
         for (const auto &var_def : var_defs)
         {
             IRValue variable = var_def->GenerateIRExpr(builder);
-            builder.Emit("  @" + variable.ToString() + " = alloc i32\n");
+            global_symbol_table.AddCount(variable.ToString());
+            int count = global_symbol_table.GetCount(variable.ToString());
+            std::string variable_name = "@" + variable.ToString() + "_" + std::to_string(count);
+            builder.Emit("  " + variable_name + " = alloc i32\n");
             std::string value = global_symbol_table.Get(variable.ToString()).value;
             if (value != "")
             {
-                builder.Emit("  store " + value + ", @" + variable.ToString() + "\n");
+                builder.Emit("  store " + value + ", " + variable_name + "\n");
             }
-            Symbol symbol = {SymbolKind::Var, "@" + variable.ToString()};
+            Symbol symbol = {SymbolKind::Var, variable_name};
             global_symbol_table.Insert(variable.ToString(), symbol);
         }
     }
@@ -669,15 +710,11 @@ class StmtAST : public BaseStmtAST
 public:
     std::unique_ptr<BaseAST> lval;
     std::unique_ptr<BaseAST> exp;
+    std::unique_ptr<BaseAST> block;
+    bool is_return;
     void Dump() const override
     {
-        if (lval == nullptr)
-        {
-            std::cout << "StmtAST { return ";
-            exp->Dump();
-            std::cout << " } ";
-        }
-        else
+        if (lval != nullptr)
         {
             std::cout << "StmtAST { ";
             lval->Dump();
@@ -685,24 +722,56 @@ public:
             exp->Dump();
             std::cout << " } ";
         }
+        else if (block != nullptr)
+        {
+            std::cout << "StmtAST { ";
+            block->Dump();
+            std::cout << " } ";
+        }
+        else if (exp != nullptr && is_return)
+        {
+            std::cout << "StmtAST { return ";
+            exp->Dump();
+            std::cout << " } ";
+        }
+        else if (exp != nullptr && !is_return)
+        {
+            std::cout << "StmtAST { ";
+            exp->Dump();
+            std::cout << " } ";
+        }
+        else if (exp == nullptr && is_return)
+        {
+            std::cout << "StmtAST { return ";
+            std::cout << " } ";
+        }
     }
 
     void GenerateIRStmt(IRBuilder &builder) const override
     {
-        if (lval == nullptr)
-        {
-            builder.CreateReturn(exp->GenerateIRExpr(builder));
-        }
-        else
+        if (lval != nullptr)
         {
             IRValue variable = lval->GenerateIRExpr(builder);
             if (!variable.IsVariable())
             {
                 abort();
             }
-
             IRValue exp_value = exp->GenerateIRExpr(builder);
             builder.Emit("  store " + exp_value.ToString() + ", " + variable.ToString() + "\n");
+        }
+        else if (block != nullptr)
+        {
+            block->GenerateIRStmt(builder);
+        }
+        else if (exp != nullptr && is_return)
+        {
+            builder.CreateReturn(exp->GenerateIRExpr(builder));
+        }
+        else if (exp != nullptr && !is_return)
+        {
+        }
+        else if (exp == nullptr && is_return)
+        {
         }
     }
 };
