@@ -47,8 +47,8 @@ using namespace std;
 // 非终结符的类型定义
 %type <ast_val> FuncDef FuncType Block BlockItem Stmt 
 %type <ast_val> ConstExp Exp PrimaryExp UnaryExp NumberExp MulExp AddExp RelExp EqExp LAndExp LOrExp
-%type <ast_val> Decl ConstDecl BType ConstDef ConstInitVal LVal
-%type <ast_list> BlockItemList ConstDeclList
+%type <ast_val> Decl ConstDecl VarDecl VarDef InitVal BType ConstDef ConstInitVal LVal
+%type <ast_list> BlockItemList ConstDeclList VarDeclList
 %type <str_val> UnaryOp MulOp AddOp RelOp EqOp
 
 %%
@@ -130,7 +130,12 @@ BlockItem
 Decl
   : ConstDecl {
     auto ast = new DeclAST();
-    ast->const_decl = unique_ptr<BaseAST>($1);
+    ast->decl = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | VarDecl {
+    auto ast = new DeclAST();
+    ast->decl = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
   ;
@@ -188,6 +193,49 @@ ConstExp
   }
   ;
 
+VarDecl
+  : BType VarDeclList ';' {
+    auto ast = new VarDeclAST();
+    ast->btype = unique_ptr<BaseAST>($1);
+    ast->var_defs = std::move(*$2);
+    $$ = ast;
+  }
+  ;
+
+VarDeclList
+  : VarDef {
+    $$ = new vector<std::unique_ptr<BaseAST>>();
+    $$->push_back(unique_ptr<BaseAST>($1));
+  }
+  | VarDeclList ',' VarDef {
+    $1->push_back(unique_ptr<BaseAST>($3));
+    $$ = $1;
+  }
+  ;
+
+VarDef
+  : IDENT {
+    auto ast = new VarDefAST();
+    ast->ident = *$1;
+    ast->init_val = nullptr;
+    $$ = ast;
+  } 
+  | IDENT '=' InitVal {
+    auto ast = new VarDefAST();
+    ast->ident = *$1;
+    ast->init_val = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
+
+InitVal
+  : Exp {
+    auto ast = new InitValAST();
+    ast->exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  ;
+
 LVal
   : IDENT {
     auto ast = new LValAST();
@@ -196,8 +244,15 @@ LVal
   }
 
 Stmt
-  : RETURN Exp ';' {
+  : LVal '=' Exp ';' {
     auto ast = new StmtAST();
+    ast->lval = unique_ptr<BaseAST>($1);
+    ast->exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  | RETURN Exp ';' {
+    auto ast = new StmtAST();
+    ast->lval = nullptr;
     ast->exp = unique_ptr<BaseAST>($2);
     $$ = ast;
   }

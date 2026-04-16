@@ -3,9 +3,36 @@
 #include <string>
 #include <unordered_map>
 #include "koopa.h"
+
 class Vistor
 {
 private:
+    // enum class Type
+    // {
+    //     Int,
+    //     Register,
+    //     Variable,
+    //     Unknown,
+    // };
+
+    // class Value
+    // {
+    // public:
+    //     Type type;
+    //     std::string data;
+
+    //     Value()
+    //     {
+    //         type = Type::Unknown;
+    //         data = "";
+    //     }
+
+    //     Value(Type type, std::string data)
+    //     {
+    //         this->type = type;
+    //         this->data = data;
+    //     }
+    // };
     koopa_raw_program_builder_t builder;
     koopa_raw_program_t raw_program;
     std::vector<std::string> global_symbols;
@@ -27,11 +54,33 @@ private:
         "a7",
     };
     int register_count = 0;
+    int stack_offset = 0;
     std::string riscv_code = "";
     std::unordered_map<koopa_raw_value_t, std::string> raw_value_map;
     std::string NewRegister()
     {
         return registers[register_count++];
+    }
+
+    void ResetRegister()
+    {
+        register_count = 0;
+    }
+
+    std::string AllocStack()
+    {
+        stack_offset += 4;
+        return std::to_string(stack_offset - 4) + "(sp)";
+    }
+
+    int GetStackSize()
+    {
+        return stack_offset;
+    }
+
+    void ResetStack()
+    {
+        stack_offset = 0;
     }
 
 public:
@@ -85,9 +134,17 @@ public:
                 Visit(reinterpret_cast<koopa_raw_basic_block_t>(ptr));
                 break;
             case KOOPA_RSIK_VALUE:
+            {
                 // 访问指令
-                Visit(reinterpret_cast<koopa_raw_value_t>(ptr));
+                koopa_raw_value_t value = reinterpret_cast<koopa_raw_value_t>(ptr);
+                std::string ret = Visit(value);
+                if (raw_value_map.count(value) == 0 && ret != "")
+                {
+                    raw_value_map[value] = ret;
+                }
+                ResetRegister();
                 break;
+            }
             default:
                 // 我们暂时不会遇到其他内容, 于是不对其做任何处理
                 assert(false);
@@ -102,8 +159,17 @@ public:
         std::string symbol = std::string(func->name).substr(1);
         global_symbols.push_back(symbol);
         riscv_code += symbol + ":\n";
+        std::string new_risc_code = riscv_code;
+        riscv_code = "";
         // 访问所有基本块
+        ResetStack();
         Visit(func->bbs);
+        int offset = GetStackSize();
+        new_risc_code += "  addi  sp, sp, -" + std::to_string(offset) + "\n";
+        new_risc_code += riscv_code;
+        new_risc_code += "  addi  sp, sp, " + std::to_string(offset) + "\n";
+        new_risc_code += "  ret\n";
+        riscv_code = new_risc_code;
         return;
     }
 
@@ -117,10 +183,7 @@ public:
     // 访问指令
     std::string Visit(const koopa_raw_value_t &value)
     {
-        if (raw_value_map.count(value) > 0)
-        {
-            return raw_value_map[value];
-        }
+
         std::string ret = "";
         // 根据指令类型判断后续需要如何访问
         const auto &kind = value->kind;
@@ -133,13 +196,54 @@ public:
         case KOOPA_RVT_INTEGER:
             // 访问 integer 指令
             ret = Visit(kind.data.integer);
-            raw_value_map[value] = ret;
             break;
         case KOOPA_RVT_BINARY:
             // 访问 binary 指令
+            if (raw_value_map.count(value) > 0)
+            {
+                return raw_value_map[value];
+            }
             ret = Visit(kind.data.binary);
-            raw_value_map[value] = ret;
             break;
+        case KOOPA_RVT_ALLOC:
+            // 访问 global_alloc 指令
+            if (raw_value_map.count(value) > 0)
+            {
+                return raw_value_map[value];
+            }
+            ret = AllocStack();
+            break;
+        case KOOPA_RVT_STORE:
+        {
+            // 访问 store 指令
+            std::string value = Visit(kind.data.store.value);
+            if (value.length() > 4 && value.substr(value.length() - 4) == "(sp)")
+            {
+                std::string reg = NewRegister();
+                riscv_code += "  lw    " + reg + ", " + value + "\n";
+                value = reg;
+            }
+            std::string dest = Visit(kind.data.store.dest);
+            riscv_code += "  sw    " + value + ", " + dest + "\n";
+            break;
+        }
+
+        case KOOPA_RVT_LOAD:
+        {
+            // 访问 load 指令
+            if (raw_value_map.count(value) > 0)
+            {
+                std::string reg = NewRegister();
+                riscv_code += "  lw    " + reg + ", " + raw_value_map[value] + "\n";
+                return reg;
+            }
+            std::string src = Visit(kind.data.load.src);
+            std::string reg = NewRegister();
+            riscv_code += "  lw    " + reg + ", " + src + "\n";
+            ret = AllocStack();
+            riscv_code += "  sw    " + reg + ", " + ret + "\n";
+            break;
+        }
 
         default:
             // 其他类型暂时遇不到
@@ -154,11 +258,13 @@ public:
         std::string s_val = std::to_string(value.value);
         if (s_val == "0")
         {
+            // return Value(Type::Register, "x0");
             return "x0";
         }
         std::string new_reg = NewRegister();
         riscv_code += "  li    " + new_reg + ", " + s_val + "\n";
         return new_reg;
+        // return Value(Type::Register, new_reg);
     }
 
     void Visit(const koopa_raw_return_t &value)
@@ -167,11 +273,14 @@ public:
         if (raw_value == nullptr)
             return;
         std::string return_value = Visit(raw_value);
-        if (return_value != "")
+        if (return_value.length() > 4 && return_value.substr(return_value.length() - 4) == "(sp)")
+        {
+            riscv_code += "  lw    a0, " + return_value + "\n";
+        }
+        else if (return_value != "")
         {
             riscv_code += "  mv    a0, " + return_value + "\n";
         }
-        riscv_code += "  ret\n";
         return;
     }
 
@@ -179,140 +288,146 @@ public:
     {
         std::string first_value = Visit(binary.lhs);
         std::string second_value = Visit(binary.rhs);
-        if (binary.op == KOOPA_RBO_NOT_EQ)
+
+        if (first_value.length() > 4 && first_value.substr(first_value.length() - 4) == "(sp)")
         {
-            std::string new_register = first_value;
-            if (first_value == "x0")
-            {
-                new_register = NewRegister();
-            }
-            riscv_code += "  xor   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            riscv_code += "  snez  " + new_register + ", " + new_register + "\n";
-            return new_register;
+            std::string reg = NewRegister();
+            riscv_code += "  lw    " + reg + ", " + first_value + "\n";
+            first_value = reg;
         }
-        else if (binary.op == KOOPA_RBO_EQ)
+
+        if (second_value.length() > 4 && second_value.substr(second_value.length() - 4) == "(sp)")
         {
-            std::string new_register = first_value;
-            if (first_value == "x0")
-            {
-                new_register = NewRegister();
-            }
-            riscv_code += "  xor   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            riscv_code += "  seqz  " + new_register + ", " + new_register + "\n";
-            return new_register;
-        }
-        else if (binary.op == KOOPA_RBO_GT)
-        {
-            std::string new_register = first_value;
-            if (first_value == "x0")
-            {
-                new_register = NewRegister();
-            }
-            riscv_code += "  sgt   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            return new_register;
-        }
-        else if (binary.op == KOOPA_RBO_LT)
-        {
-            std::string new_register = first_value;
-            if (first_value == "x0")
-            {
-                new_register = NewRegister();
-            }
-            riscv_code += "  slt   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            return new_register;
-        }
-        else if (binary.op == KOOPA_RBO_GE)
-        {
-            std::string new_register = first_value;
-            if (first_value == "x0")
-            {
-                new_register = NewRegister();
-            }
-            riscv_code += "  slt   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            riscv_code += "  seqz  " + new_register + ", " + new_register + "\n";
-            return new_register;
-        }
-        else if (binary.op == KOOPA_RBO_LE)
-        {
-            std::string new_register = first_value;
-            if (first_value == "x0")
-            {
-                new_register = NewRegister();
-            }
-            riscv_code += "  sgt   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            riscv_code += "  seqz  " + new_register + ", " + new_register + "\n";
-            return new_register;
-        }
-        else if (binary.op == KOOPA_RBO_ADD)
-        {
-            std::string new_register = NewRegister();
-            riscv_code += "  add   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            return new_register;
-        }
-        else if (binary.op == KOOPA_RBO_SUB)
-        {
-            std::string new_register = NewRegister();
-            riscv_code += "  sub   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            return new_register;
-        }
-        else if (binary.op == KOOPA_RBO_MUL)
-        {
-            std::string new_register = NewRegister();
-            riscv_code += "  mul   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            return new_register;
-        }
-        else if (binary.op == KOOPA_RBO_DIV)
-        {
-            std::string new_register = NewRegister();
-            riscv_code += "  div   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            return new_register;
-        }
-        else if (binary.op == KOOPA_RBO_MOD)
-        {
-            std::string new_register = NewRegister();
-            riscv_code += "  rem   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            return new_register;
-        }
-        else if (binary.op == KOOPA_RBO_AND)
-        {
-            std::string new_register = NewRegister();
-            riscv_code += "  and   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            return new_register;
-        }
-        else if (binary.op == KOOPA_RBO_OR)
-        {
-            std::string new_register = NewRegister();
-            riscv_code += "  or    " + new_register + ", " + first_value + ", " + second_value + "\n";
-            return new_register;
-        }
-        else if (binary.op == KOOPA_RBO_XOR)
-        {
-            std::string new_register = NewRegister();
-            riscv_code += "  xor   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            return new_register;
-        }
-        else if (binary.op == KOOPA_RBO_SHL)
-        {
-            std::string new_register = NewRegister();
-            riscv_code += "  shl   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            return new_register;
-        }
-        else if (binary.op == KOOPA_RBO_SHL)
-        {
-            std::string new_register = NewRegister();
-            riscv_code += "  shr   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            return new_register;
-        }
-        else if (binary.op == KOOPA_RBO_SAR)
-        {
-            std::string new_register = NewRegister();
-            riscv_code += "  sar   " + new_register + ", " + first_value + ", " + second_value + "\n";
-            return new_register;
+            std::string reg = NewRegister();
+            riscv_code += "  lw    " + reg + ", " + second_value + "\n";
+            second_value = reg;
         }
 
         std::string ret = "";
-        abort();
-        return ret;
+        if (binary.op == KOOPA_RBO_NOT_EQ)
+        {
+            ret = first_value;
+            if (first_value == "x0")
+            {
+                ret = NewRegister();
+            }
+            riscv_code += "  xor   " + ret + ", " + first_value + ", " + second_value + "\n";
+            riscv_code += "  snez  " + ret + ", " + ret + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_EQ)
+        {
+            ret = first_value;
+            if (first_value == "x0")
+            {
+                ret = NewRegister();
+            }
+            riscv_code += "  xor   " + ret + ", " + first_value + ", " + second_value + "\n";
+            riscv_code += "  seqz  " + ret + ", " + ret + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_GT)
+        {
+            ret = first_value;
+            if (first_value == "x0")
+            {
+                ret = NewRegister();
+            }
+            riscv_code += "  sgt   " + ret + ", " + first_value + ", " + second_value + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_LT)
+        {
+            ret = first_value;
+            if (first_value == "x0")
+            {
+                ret = NewRegister();
+            }
+            riscv_code += "  slt   " + ret + ", " + first_value + ", " + second_value + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_GE)
+        {
+            ret = first_value;
+            if (first_value == "x0")
+            {
+                ret = NewRegister();
+            }
+            riscv_code += "  slt   " + ret + ", " + first_value + ", " + second_value + "\n";
+            riscv_code += "  seqz  " + ret + ", " + ret + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_LE)
+        {
+            ret = first_value;
+            if (first_value == "x0")
+            {
+                ret = NewRegister();
+            }
+            riscv_code += "  sgt   " + ret + ", " + first_value + ", " + second_value + "\n";
+            riscv_code += "  seqz  " + ret + ", " + ret + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_ADD)
+        {
+            ret = NewRegister();
+            riscv_code += "  add   " + ret + ", " + first_value + ", " + second_value + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_SUB)
+        {
+            ret = NewRegister();
+            riscv_code += "  sub   " + ret + ", " + first_value + ", " + second_value + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_MUL)
+        {
+            ret = NewRegister();
+            riscv_code += "  mul   " + ret + ", " + first_value + ", " + second_value + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_DIV)
+        {
+            ret = NewRegister();
+            riscv_code += "  div   " + ret + ", " + first_value + ", " + second_value + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_MOD)
+        {
+            ret = NewRegister();
+            riscv_code += "  rem   " + ret + ", " + first_value + ", " + second_value + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_AND)
+        {
+            ret = NewRegister();
+            riscv_code += "  and   " + ret + ", " + first_value + ", " + second_value + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_OR)
+        {
+            ret = NewRegister();
+            riscv_code += "  or    " + ret + ", " + first_value + ", " + second_value + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_XOR)
+        {
+            ret = NewRegister();
+            riscv_code += "  xor   " + ret + ", " + first_value + ", " + second_value + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_SHL)
+        {
+            ret = NewRegister();
+            riscv_code += "  shl   " + ret + ", " + first_value + ", " + second_value + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_SHL)
+        {
+            ret = NewRegister();
+            riscv_code += "  shr   " + ret + ", " + first_value + ", " + second_value + "\n";
+        }
+        else if (binary.op == KOOPA_RBO_SAR)
+        {
+            ret = NewRegister();
+            riscv_code += "  sar   " + ret + ", " + first_value + ", " + second_value + "\n";
+        }
+        std::string offset = AllocStack();
+        riscv_code += "  sw    " + ret + ", " + offset + "\n";
+
+        return offset;
+    }
+
+    void Visit(const koopa_raw_global_alloc_t &value)
+    {
+        koopa_raw_value_t raw_value = value.init;
+        std::string return_value = Visit(raw_value);
+        return;
     }
 
     std::string GetRiscvCode()

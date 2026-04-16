@@ -4,30 +4,12 @@
 #include <vector>
 #include <unordered_map>
 #include <variant>
-
-class SymbolTable
-{
-private:
-    std::unordered_map<std::string, std::string> table;
-
-public:
-    void Insert(std::string name, std::string value)
-    {
-        table[name] = value;
-    }
-
-    std::string Get(std::string name)
-    {
-        return table[name];
-    }
-};
-
-extern SymbolTable global_symbol_table;
+#include <functional>
 
 enum class Type
 {
     Int,
-    Reigster,
+    Register,
     Variable,
     String,
     Unknown,
@@ -41,6 +23,7 @@ private:
     std::string data;
 
 public:
+    IRValue() = default;
     IRValue(Type type, std::string data)
     {
         this->type = type;
@@ -51,9 +34,15 @@ public:
     {
         return data;
     }
+
     bool IsConst()
     {
         return type == Type::Int;
+    }
+
+    bool IsVariable()
+    {
+        return type == Type::Variable;
     }
 
     int GetConstValue()
@@ -62,15 +51,239 @@ public:
     }
 };
 
+enum class SymbolKind
+{
+    Const,
+    Var,
+};
+struct Symbol
+{
+    SymbolKind kind;
+    std::string value;
+};
+
+class SymbolTable
+{
+private:
+    std::unordered_map<std::string, Symbol> table;
+
+public:
+    void Insert(std::string name, Symbol value)
+    {
+        table[name] = value;
+    }
+
+    Symbol Get(std::string name)
+    {
+        return table[name];
+    }
+};
+
+extern SymbolTable global_symbol_table;
 class IRBuilder
 {
-public:
+private:
     std::string ir;
     int reg_cnt = 0;
 
-    std::string NewReg()
+    std::string LoadIfVariable(IRValue value)
+    {
+        if (value.IsVariable())
+        {
+            std::string first_arg = NewReg();
+            Emit("  " + first_arg + " = load " + value.ToString() + "\n");
+            return first_arg;
+        }
+        return value.ToString();
+    }
+
+    IRValue CreateBinaryOp(IRValue first_value, IRValue second_value,
+                           const std::string &op_name,
+                           std::function<int(int, int)> const_op)
+    {
+        if (first_value.IsConst() && second_value.IsConst())
+        {
+            int result = const_op(first_value.GetConstValue(), second_value.GetConstValue());
+            return IRValue(Type::Int, std::to_string(result));
+        }
+        else
+        {
+            std::string first_arg = LoadIfVariable(first_value);
+            std::string second_arg = LoadIfVariable(second_value);
+            std::string reg = NewReg();
+            Emit("  " + reg + " = " + op_name + " " + first_arg + ", " + second_arg + "\n");
+            return IRValue(Type::Register, reg);
+        }
+    }
+
+    IRValue CreateNotEQ(IRValue a, IRValue b)
+    {
+        return CreateBinaryOp(a, b, "ne", [](int x, int y)
+                              { return x != y; });
+    }
+
+    IRValue CreateEQ(IRValue a, IRValue b)
+    {
+        return CreateBinaryOp(a, b, "eq", [](int x, int y)
+                              { return x == y; });
+    }
+
+    IRValue CreateGT(IRValue a, IRValue b)
+    {
+        return CreateBinaryOp(a, b, "gt", [](int x, int y)
+                              { return x > y; });
+    }
+
+    IRValue CreateLT(IRValue a, IRValue b)
+    {
+        return CreateBinaryOp(a, b, "lt", [](int x, int y)
+                              { return x < y; });
+    }
+
+    IRValue CreateGE(IRValue a, IRValue b)
+    {
+        return CreateBinaryOp(a, b, "ge", [](int x, int y)
+                              { return x >= y; });
+    }
+
+    IRValue CreateLE(IRValue a, IRValue b)
+    {
+        return CreateBinaryOp(a, b, "le", [](int x, int y)
+                              { return x <= y; });
+    }
+
+    IRValue CreateAdd(IRValue a, IRValue b)
+    {
+        return CreateBinaryOp(a, b, "add", [](int x, int y)
+                              { return x + y; });
+    }
+    IRValue CreateSub(IRValue a, IRValue b)
+    {
+        return CreateBinaryOp(a, b, "sub", [](int x, int y)
+                              { return x - y; });
+    }
+    IRValue CreateMul(IRValue a, IRValue b)
+    {
+        return CreateBinaryOp(a, b, "mul", [](int x, int y)
+                              { return x * y; });
+    }
+
+    IRValue CreateDiv(IRValue a, IRValue b)
+    {
+        return CreateBinaryOp(a, b, "div", [](int x, int y)
+                              { return x / y; });
+    }
+
+    IRValue CreateMod(IRValue a, IRValue b)
+    {
+        return CreateBinaryOp(a, b, "mod", [](int x, int y)
+                              { return x % y; });
+    }
+
+    IRValue CreateAnd(IRValue a, IRValue b)
+    {
+        if (a.IsConst() && b.IsConst())
+        {
+            int result = a.GetConstValue() && b.GetConstValue();
+            return IRValue(Type::Int, std::to_string(result));
+        }
+        std::string first_arg = LoadIfVariable(a);
+        std::string second_arg = LoadIfVariable(b);
+        std::string reg1 = NewReg();
+        Emit("  " + reg1 + " = ne " + first_arg + ", " + "0" + "\n");
+        std::string reg2 = NewReg();
+        Emit("  " + reg2 + " = ne " + second_arg + ", " + "0" + "\n");
+        std::string reg3 = NewReg();
+        Emit("  " + reg3 + " = and " + reg1 + ", " + reg2 + "\n");
+        return IRValue(Type::Register, reg3);
+    }
+
+    IRValue CreateOr(IRValue a, IRValue b)
+    {
+        if (a.IsConst() && b.IsConst())
+        {
+            int result = a.GetConstValue() || b.GetConstValue();
+            return IRValue(Type::Int, std::to_string(result));
+        }
+        std::string first_arg = LoadIfVariable(a);
+        std::string second_arg = LoadIfVariable(b);
+        std::string reg1 = NewReg();
+        Emit("  " + reg1 + " = ne " + first_arg + ", " + "0" + "\n");
+        std::string reg2 = NewReg();
+        Emit("  " + reg2 + " = ne " + second_arg + ", " + "0" + "\n");
+        std::string reg3 = NewReg();
+        Emit("  " + reg3 + " = or " + reg1 + ", " + reg2 + "\n");
+        return IRValue(Type::Register, reg3);
+    }
+
+public:
+    std::string
+    NewReg()
     {
         return "%" + std::to_string(reg_cnt++);
+    }
+
+    IRValue CreateBinary(std::string opt, IRValue first_value, IRValue second_value)
+    {
+        if (opt == "+")
+        {
+            return CreateAdd(first_value, second_value);
+        }
+        else if (opt == "-")
+        {
+            return CreateSub(first_value, second_value);
+        }
+        else if (opt == "*")
+        {
+            return CreateMul(first_value, second_value);
+        }
+        else if (opt == "/")
+        {
+            return CreateDiv(first_value, second_value);
+        }
+        else if (opt == "%")
+        {
+            return CreateMod(first_value, second_value);
+        }
+        else if (opt == "!=")
+        {
+            return CreateNotEQ(first_value, second_value);
+        }
+        else if (opt == "==")
+        {
+            return CreateEQ(first_value, second_value);
+        }
+        else if (opt == ">")
+        {
+            return CreateGT(first_value, second_value);
+        }
+        else if (opt == "<")
+        {
+            return CreateLT(first_value, second_value);
+        }
+        else if (opt == ">=")
+        {
+            return CreateGE(first_value, second_value);
+        }
+        else if (opt == "<=")
+        {
+            return CreateLE(first_value, second_value);
+        }
+        else if (opt == "&&")
+        {
+            return CreateAnd(first_value, second_value);
+        }
+        else if (opt == "||")
+        {
+            return CreateOr(first_value, second_value);
+        }
+        abort();
+    }
+
+    void CreateReturn(IRValue value)
+    {
+        std::string ret = LoadIfVariable(value);
+        Emit("  ret " + ret + "\n");
     }
 
     void Emit(const std::string &s)
@@ -225,17 +438,17 @@ public:
 class DeclAST : public BaseStmtAST
 {
 public:
-    std::unique_ptr<BaseAST> const_decl;
+    std::unique_ptr<BaseAST> decl;
     void Dump() const override
     {
         std::cout << "DeclAST { ";
-        const_decl->Dump();
+        decl->Dump();
         std::cout << " } ";
     }
 
     void GenerateIRStmt(IRBuilder &builder) const override
     {
-        const_decl->GenerateIRStmt(builder);
+        decl->GenerateIRStmt(builder);
     }
 };
 
@@ -298,8 +511,12 @@ public:
 
     void GenerateIRStmt(IRBuilder &builder) const override
     {
-        std::string value = const_init_val->GenerateIRExpr(builder).ToString();
-        global_symbol_table.Insert(ident, value);
+        IRValue value = const_init_val->GenerateIRExpr(builder);
+        if (!value.IsConst())
+        {
+            abort();
+        }
+        global_symbol_table.Insert(ident, {SymbolKind::Const, value.ToString()});
     }
 };
 
@@ -337,6 +554,92 @@ public:
     }
 };
 
+class VarDeclAST : public BaseStmtAST
+{
+public:
+    std::unique_ptr<BaseAST> btype;
+    std::vector<std::unique_ptr<BaseAST>> var_defs;
+    void Dump() const override
+    {
+        std::cout << "VarDeclAST { ";
+        btype->Dump();
+        for (const auto &var_def : var_defs)
+        {
+            var_def->Dump();
+        }
+        std::cout << " } ";
+    }
+
+    void GenerateIRStmt(IRBuilder &builder) const override
+    {
+        btype->GenerateIRStmt(builder);
+        for (const auto &var_def : var_defs)
+        {
+            IRValue variable = var_def->GenerateIRExpr(builder);
+            builder.Emit("  @" + variable.ToString() + " = alloc i32\n");
+            std::string value = global_symbol_table.Get(variable.ToString()).value;
+            if (value != "")
+            {
+                builder.Emit("  store " + value + ", @" + variable.ToString() + "\n");
+            }
+            Symbol symbol = {SymbolKind::Var, "@" + variable.ToString()};
+            global_symbol_table.Insert(variable.ToString(), symbol);
+        }
+    }
+};
+
+class VarDefAST : public BaseExpAST
+{
+public:
+    std::string ident;
+    std::unique_ptr<BaseAST> init_val;
+    void Dump() const override
+    {
+        std::cout << "VarDefAST { ";
+        std::cout << ident;
+        std::cout << " = ";
+        if (init_val != nullptr)
+        {
+            init_val->Dump();
+        }
+
+        std::cout << " } ";
+    }
+
+    IRValue GenerateIRExpr(IRBuilder &builder) const override
+    {
+
+        if (init_val != nullptr)
+        {
+            IRValue value = init_val->GenerateIRExpr(builder);
+            global_symbol_table.Insert(ident, {SymbolKind::Var, value.ToString()});
+        }
+        else
+        {
+            global_symbol_table.Insert(ident, {SymbolKind::Var, ""});
+        }
+
+        return IRValue(Type::Variable, ident);
+    }
+};
+
+class InitValAST : public BaseExpAST
+{
+public:
+    std::unique_ptr<BaseAST> exp;
+    void Dump() const override
+    {
+        std::cout << "InitValAST { ";
+        exp->Dump();
+        std::cout << " } ";
+    }
+
+    IRValue GenerateIRExpr(IRBuilder &builder) const override
+    {
+        return exp->GenerateIRExpr(builder);
+    }
+};
+
 class LValAST : public BaseExpAST
 {
 public:
@@ -350,25 +653,57 @@ public:
 
     IRValue GenerateIRExpr(IRBuilder &builder) const override
     {
-        std::string value = global_symbol_table.Get(ident);
-        return IRValue(Type::Int, value);
+        Symbol symbol = global_symbol_table.Get(ident);
+        if (symbol.kind == SymbolKind::Const)
+        {
+            return IRValue(Type::Int, symbol.value);
+        }
+        else
+        {
+            return IRValue(Type::Variable, symbol.value);
+        }
     }
 };
 class StmtAST : public BaseStmtAST
 {
 public:
+    std::unique_ptr<BaseAST> lval;
     std::unique_ptr<BaseAST> exp;
     void Dump() const override
     {
-        std::cout << "StmtAST { ";
-        exp->Dump();
-        std::cout << " } ";
+        if (lval == nullptr)
+        {
+            std::cout << "StmtAST { return ";
+            exp->Dump();
+            std::cout << " } ";
+        }
+        else
+        {
+            std::cout << "StmtAST { ";
+            lval->Dump();
+            std::cout << " = ";
+            exp->Dump();
+            std::cout << " } ";
+        }
     }
 
     void GenerateIRStmt(IRBuilder &builder) const override
     {
-        std::string ret = exp->GenerateIRExpr(builder).ToString();
-        builder.Emit("  ret " + ret + "\n");
+        if (lval == nullptr)
+        {
+            builder.CreateReturn(exp->GenerateIRExpr(builder));
+        }
+        else
+        {
+            IRValue variable = lval->GenerateIRExpr(builder);
+            if (!variable.IsVariable())
+            {
+                abort();
+            }
+
+            IRValue exp_value = exp->GenerateIRExpr(builder);
+            builder.Emit("  store " + exp_value.ToString() + ", " + variable.ToString() + "\n");
+        }
     }
 };
 class ExpAST : public BaseExpAST
@@ -413,58 +748,10 @@ public:
         {
             return unar_exp->GenerateIRExpr(builder);
         }
-        else if (op == "*")
-        {
-            IRValue mul_exp_value = mul_exp->GenerateIRExpr(builder);
-            IRValue unar_exp_value = unar_exp->GenerateIRExpr(builder);
-            if (mul_exp_value.IsConst() && unar_exp_value.IsConst())
-            {
-                int result = mul_exp_value.GetConstValue() * unar_exp_value.GetConstValue();
-                return IRValue(Type::Int, std::to_string(result));
-            }
-            else
-            {
-                std::string reg = builder.NewReg();
-                builder.Emit("  " + reg + " = mul " + mul_exp_value.ToString() + ", " + unar_exp_value.ToString() + "\n");
-                return IRValue(Type::Reigster, reg);
-            }
-        }
-        else if (op == "/")
-        {
-            IRValue mul_exp_value = mul_exp->GenerateIRExpr(builder);
-            IRValue unar_exp_value = unar_exp->GenerateIRExpr(builder);
-            if (mul_exp_value.IsConst() && unar_exp_value.IsConst())
-            {
-                int result = mul_exp_value.GetConstValue() / unar_exp_value.GetConstValue();
-                return IRValue(Type::Int, std::to_string(result));
-            }
-            else
-            {
-                std::string reg = builder.NewReg();
-                builder.Emit("  " + reg + " = div " + mul_exp_value.ToString() + ", " + unar_exp_value.ToString() + "\n");
-                return IRValue(Type::Reigster, reg);
-            }
-        }
-        else if (op == "%")
-        {
-            IRValue mul_exp_value = mul_exp->GenerateIRExpr(builder);
-            IRValue unar_exp_value = unar_exp->GenerateIRExpr(builder);
-            if (mul_exp_value.IsConst() && unar_exp_value.IsConst())
-            {
-                int result = mul_exp_value.GetConstValue() % unar_exp_value.GetConstValue();
-                return IRValue(Type::Int, std::to_string(result));
-            }
-            else
-            {
-                std::string reg = builder.NewReg();
-                builder.Emit("  " + reg + " = mod " + mul_exp_value.ToString() + ", " + unar_exp_value.ToString() + "\n");
-                return IRValue(Type::Reigster, reg);
-            }
-        }
-        else
-        {
-            abort();
-        }
+
+        IRValue first_value = mul_exp->GenerateIRExpr(builder);
+        IRValue second_value = unar_exp->GenerateIRExpr(builder);
+        return builder.CreateBinary(op, first_value, second_value);
     }
 };
 
@@ -492,36 +779,9 @@ public:
         {
             return mul_exp->GenerateIRExpr(builder);
         }
-        else if (op == "+")
-        {
-            IRValue add_exp_value = add_exp->GenerateIRExpr(builder);
-            IRValue mul_exp_value = mul_exp->GenerateIRExpr(builder);
-            if (add_exp_value.IsConst() && mul_exp_value.IsConst())
-            {
-                int result = add_exp_value.GetConstValue() + mul_exp_value.GetConstValue();
-                return IRValue(Type::Int, std::to_string(result));
-            }
-            std::string reg = builder.NewReg();
-            builder.Emit("  " + reg + " = add " + add_exp_value.ToString() + ", " + mul_exp_value.ToString() + "\n");
-            return IRValue(Type::Reigster, reg);
-        }
-        else if (op == "-")
-        {
-            IRValue add_exp_value = add_exp->GenerateIRExpr(builder);
-            IRValue mul_exp_value = mul_exp->GenerateIRExpr(builder);
-            if (add_exp_value.IsConst() && mul_exp_value.IsConst())
-            {
-                int result = add_exp_value.GetConstValue() - mul_exp_value.GetConstValue();
-                return IRValue(Type::Int, std::to_string(result));
-            }
-            std::string reg = builder.NewReg();
-            builder.Emit("  " + reg + " = sub " + add_exp_value.ToString() + ", " + mul_exp_value.ToString() + "\n");
-            return IRValue(Type::Reigster, reg);
-        }
-        else
-        {
-            abort();
-        }
+        IRValue first_value = add_exp->GenerateIRExpr(builder);
+        IRValue second_value = mul_exp->GenerateIRExpr(builder);
+        return builder.CreateBinary(op, first_value, second_value);
     }
 };
 
@@ -549,62 +809,9 @@ public:
         {
             return add_exp->GenerateIRExpr(builder);
         }
-        else if (op == "<")
-        {
-            IRValue rel_exp_value = rel_exp->GenerateIRExpr(builder);
-            IRValue add_exp_value = add_exp->GenerateIRExpr(builder);
-            if (rel_exp_value.IsConst() && add_exp_value.IsConst())
-            {
-                int result = rel_exp_value.GetConstValue() < add_exp_value.GetConstValue();
-                return IRValue(Type::Int, std::to_string(result));
-            }
-            std::string reg = builder.NewReg();
-            builder.Emit("  " + reg + " = lt " + rel_exp_value.ToString() + ", " + add_exp_value.ToString() + "\n");
-            return IRValue(Type::Reigster, reg);
-        }
-        else if (op == ">")
-        {
-            IRValue rel_exp_value = rel_exp->GenerateIRExpr(builder);
-            IRValue add_exp_value = add_exp->GenerateIRExpr(builder);
-            if (rel_exp_value.IsConst() && add_exp_value.IsConst())
-            {
-                int result = rel_exp_value.GetConstValue() > add_exp_value.GetConstValue();
-                return IRValue(Type::Int, std::to_string(result));
-            }
-            std::string reg = builder.NewReg();
-            builder.Emit("  " + reg + " = gt " + rel_exp_value.ToString() + ", " + add_exp_value.ToString() + "\n");
-            return IRValue(Type::Reigster, reg);
-        }
-        else if (op == "<=")
-        {
-            IRValue rel_exp_value = rel_exp->GenerateIRExpr(builder);
-            IRValue add_exp_value = add_exp->GenerateIRExpr(builder);
-            if (rel_exp_value.IsConst() && add_exp_value.IsConst())
-            {
-                int result = rel_exp_value.GetConstValue() <= add_exp_value.GetConstValue();
-                return IRValue(Type::Int, std::to_string(result));
-            }
-            std::string reg = builder.NewReg();
-            builder.Emit("  " + reg + " = le " + rel_exp_value.ToString() + ", " + add_exp_value.ToString() + "\n");
-            return IRValue(Type::Reigster, reg);
-        }
-        else if (op == ">=")
-        {
-            IRValue rel_exp_value = rel_exp->GenerateIRExpr(builder);
-            IRValue add_exp_value = add_exp->GenerateIRExpr(builder);
-            if (rel_exp_value.IsConst() && add_exp_value.IsConst())
-            {
-                int result = rel_exp_value.GetConstValue() >= add_exp_value.GetConstValue();
-                return IRValue(Type::Int, std::to_string(result));
-            }
-            std::string reg = builder.NewReg();
-            builder.Emit("  " + reg + " = ge " + rel_exp_value.ToString() + ", " + add_exp_value.ToString() + "\n");
-            return IRValue(Type::Reigster, reg);
-        }
-        else
-        {
-            abort();
-        }
+        IRValue first_value = rel_exp->GenerateIRExpr(builder);
+        IRValue second_value = add_exp->GenerateIRExpr(builder);
+        return builder.CreateBinary(op, first_value, second_value);
     }
 };
 
@@ -632,37 +839,9 @@ public:
         {
             return rel_exp->GenerateIRExpr(builder);
         }
-        else if (op == "==")
-        {
-
-            IRValue eq_exp_value = eq_exp->GenerateIRExpr(builder);
-            IRValue rel_exp_value = rel_exp->GenerateIRExpr(builder);
-            if (eq_exp_value.IsConst() && rel_exp_value.IsConst())
-            {
-                int result = eq_exp_value.GetConstValue() == rel_exp_value.GetConstValue();
-                return IRValue(Type::Int, std::to_string(result));
-            }
-            std::string reg = builder.NewReg();
-            builder.Emit("  " + reg + " = eq " + eq_exp_value.ToString() + ", " + rel_exp_value.ToString() + "\n");
-            return IRValue(Type::Reigster, reg);
-        }
-        else if (op == "!=")
-        {
-            IRValue eq_exp_value = eq_exp->GenerateIRExpr(builder);
-            IRValue rel_exp_value = rel_exp->GenerateIRExpr(builder);
-            if (eq_exp_value.IsConst() && rel_exp_value.IsConst())
-            {
-                int result = eq_exp_value.GetConstValue() != rel_exp_value.GetConstValue();
-                return IRValue(Type::Int, std::to_string(result));
-            }
-            std::string reg = builder.NewReg();
-            builder.Emit("  " + reg + " = ne " + eq_exp_value.ToString() + ", " + rel_exp_value.ToString() + "\n");
-            return IRValue(Type::Reigster, reg);
-        }
-        else
-        {
-            abort();
-        }
+        IRValue first_value = eq_exp->GenerateIRExpr(builder);
+        IRValue second_value = rel_exp->GenerateIRExpr(builder);
+        return builder.CreateBinary(op, first_value, second_value);
     }
 };
 
@@ -690,27 +869,9 @@ public:
         {
             return eq_exp->GenerateIRExpr(builder);
         }
-        else if (op == "&&")
-        {
-            IRValue land_exp_value = land_exp->GenerateIRExpr(builder);
-            IRValue eq_exp_value = eq_exp->GenerateIRExpr(builder);
-            if (land_exp_value.IsConst() && eq_exp_value.IsConst())
-            {
-                int result = land_exp_value.GetConstValue() && eq_exp_value.GetConstValue();
-                return IRValue(Type::Int, std::to_string(result));
-            }
-            std::string reg1 = builder.NewReg();
-            builder.Emit("  " + reg1 + " = ne " + land_exp_value.ToString() + ", " + "0" + "\n");
-            std::string reg2 = builder.NewReg();
-            builder.Emit("  " + reg2 + " = ne " + eq_exp_value.ToString() + ", " + "0" + "\n");
-            std::string reg3 = builder.NewReg();
-            builder.Emit("  " + reg3 + " = and " + reg1 + ", " + reg2 + "\n");
-            return IRValue(Type::Reigster, reg3);
-        }
-        else
-        {
-            abort();
-        }
+        IRValue first_value = land_exp->GenerateIRExpr(builder);
+        IRValue second_value = eq_exp->GenerateIRExpr(builder);
+        return builder.CreateBinary(op, first_value, second_value);
     }
 };
 
@@ -738,27 +899,9 @@ public:
         {
             return land_exp->GenerateIRExpr(builder);
         }
-        else if (op == "||")
-        {
-            IRValue lor_exp_value = lor_exp->GenerateIRExpr(builder);
-            IRValue land_exp_value = land_exp->GenerateIRExpr(builder);
-            if (lor_exp_value.IsConst() && land_exp_value.IsConst())
-            {
-                int result = lor_exp_value.GetConstValue() || land_exp_value.GetConstValue();
-                return IRValue(Type::Int, std::to_string(result));
-            }
-            std::string reg1 = builder.NewReg();
-            builder.Emit("  " + reg1 + " = ne " + lor_exp_value.ToString() + ", " + "0" + "\n");
-            std::string reg2 = builder.NewReg();
-            builder.Emit("  " + reg2 + " = ne " + land_exp_value.ToString() + ", " + "0" + "\n");
-            std::string reg3 = builder.NewReg();
-            builder.Emit("  " + reg3 + " = or " + reg1 + ", " + reg2 + "\n");
-            return IRValue(Type::Reigster, reg3);
-        }
-        else
-        {
-            abort();
-        }
+        IRValue first_value = lor_exp->GenerateIRExpr(builder);
+        IRValue second_value = land_exp->GenerateIRExpr(builder);
+        return builder.CreateBinary(op, first_value, second_value);
     }
 };
 
@@ -788,13 +931,13 @@ public:
         {
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = sub 0, " + value + "\n");
-            return IRValue(Type::Reigster, reg);
+            return IRValue(Type::Register, reg);
         }
         else if (unaryOp == "!")
         {
             std::string reg = builder.NewReg();
             builder.Emit("  " + reg + " = eq " + value + ", 0" + +"\n");
-            return IRValue(Type::Reigster, reg);
+            return IRValue(Type::Register, reg);
         }
         else
         {
