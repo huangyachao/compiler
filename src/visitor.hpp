@@ -57,7 +57,10 @@ private:
     int stack_offset = 0;
     std::string riscv_code = "";
     std::unordered_map<koopa_raw_value_t, std::string> raw_value_map;
-    std::string NewRegister()
+    std::string current_symbol = "";
+
+    std::string
+    NewRegister()
     {
         return registers[register_count++];
     }
@@ -158,6 +161,7 @@ public:
     {
         std::string symbol = std::string(func->name).substr(1);
         global_symbols.push_back(symbol);
+        current_symbol = symbol;
         riscv_code += symbol + ":\n";
         std::string new_risc_code = riscv_code;
         riscv_code = "";
@@ -167,6 +171,7 @@ public:
         int offset = GetStackSize();
         new_risc_code += "  addi  sp, sp, -" + std::to_string(offset) + "\n";
         new_risc_code += riscv_code;
+        new_risc_code += symbol + "ret:\n";
         new_risc_code += "  addi  sp, sp, " + std::to_string(offset) + "\n";
         new_risc_code += "  ret\n";
         riscv_code = new_risc_code;
@@ -177,6 +182,14 @@ public:
     void Visit(const koopa_raw_basic_block_t &bb)
     {
         // 访问所有指令
+        if (bb->name != nullptr)
+        {
+            std::string block_name = std::string(bb->name).substr(1);
+            if (block_name != "entry")
+            {
+                riscv_code += block_name + ":\n";
+            }
+        }
         Visit(bb->insts);
     }
 
@@ -245,6 +258,29 @@ public:
             break;
         }
 
+        case KOOPA_RVT_BRANCH:
+        {
+            std::string cond = Visit(kind.data.branch.cond);
+            std::string first_block_name = std::string(kind.data.branch.true_bb->name).substr(1);
+            std::string second_block_name = std::string(kind.data.branch.false_bb->name).substr(1);
+            if (cond.length() > 4 && cond.substr(cond.length() - 4) == "(sp)")
+            {
+                std::string reg = NewRegister();
+                riscv_code += "  lw    " + reg + ", " + cond + "\n";
+                cond = reg;
+            }
+            riscv_code += "  bnez  " + cond + ", " + first_block_name + "\n";
+            riscv_code += "  j     " + second_block_name + "\n";
+            break;
+        }
+
+        case KOOPA_RVT_JUMP:
+        {
+            std::string target_name = std::string(kind.data.jump.target->name).substr(1);
+            riscv_code += "  j     " + target_name + "\n";
+            break;
+        }
+
         default:
             // 其他类型暂时遇不到
             assert(false);
@@ -281,6 +317,7 @@ public:
         {
             riscv_code += "  mv    a0, " + return_value + "\n";
         }
+        riscv_code += "  j " + current_symbol + "ret\n";
         return;
     }
 

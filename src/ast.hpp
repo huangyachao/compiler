@@ -122,17 +122,7 @@ class IRBuilder
 private:
     std::string ir;
     int reg_cnt = 0;
-
-    std::string LoadIfVariable(IRValue value)
-    {
-        if (value.IsVariable())
-        {
-            std::string first_arg = NewReg();
-            Emit("  " + first_arg + " = load " + value.ToString() + "\n");
-            return first_arg;
-        }
-        return value.ToString();
-    }
+    int tag_cnt = 0;
 
     IRValue CreateBinaryOp(IRValue first_value, IRValue second_value,
                            const std::string &op_name,
@@ -317,10 +307,40 @@ public:
         abort();
     }
 
+    std::string LoadIfVariable(IRValue value)
+    {
+        if (value.IsVariable())
+        {
+            std::string first_arg = NewReg();
+            Emit("  " + first_arg + " = load " + value.ToString() + "\n");
+            return first_arg;
+        }
+        return value.ToString();
+    }
+
     void CreateReturn(IRValue value)
     {
         std::string ret = LoadIfVariable(value);
         Emit("  ret " + ret + "\n");
+    }
+
+    std::string GetTagCount()
+    {
+        return std::to_string(++tag_cnt);
+    }
+
+    void CreateIfExp(IRValue value, std::string tag_cnt, bool has_else)
+    {
+        std::string exp_value = LoadIfVariable(value);
+        if (has_else)
+        {
+            Emit("  br " + exp_value + ", %then" + tag_cnt + ", %else" + tag_cnt + "\n\n");
+        }
+        else
+        {
+            Emit("  br " + exp_value + ", %then" + tag_cnt + ", %end" + tag_cnt + "\n\n");
+        }
+        Emit("%then" + tag_cnt + ":\n");
     }
 
     void Emit(const std::string &s)
@@ -340,7 +360,7 @@ public:
     virtual ~BaseAST() = default;
     virtual void Dump() const = 0;
     virtual IRValue GenerateIRExpr(IRBuilder &) const { return IRValue(Type::Unknown, ""); }
-    virtual void GenerateIRStmt(IRBuilder &) const {}
+    virtual bool GenerateIRStmt(IRBuilder &) const { return false; }
 };
 
 class BaseExpAST : public BaseAST
@@ -356,7 +376,7 @@ class BaseStmtAST : public BaseAST
 public:
     virtual ~BaseStmtAST() = default;
     virtual void Dump() const = 0;
-    virtual void GenerateIRStmt(IRBuilder &) const = 0;
+    virtual bool GenerateIRStmt(IRBuilder &) const = 0;
 };
 
 // CompUnit 是 BaseStmtAST
@@ -373,9 +393,9 @@ public:
         std::cout << " }";
     }
 
-    void GenerateIRStmt(IRBuilder &builder) const override
+    bool GenerateIRStmt(IRBuilder &builder) const override
     {
-        func_def->GenerateIRStmt(builder);
+        return func_def->GenerateIRStmt(builder);
     }
 };
 
@@ -397,14 +417,15 @@ public:
         std::cout << " } ";
     }
 
-    void GenerateIRStmt(IRBuilder &builder) const override
+    bool GenerateIRStmt(IRBuilder &builder) const override
     {
         builder.Emit("fun @" + ident + "(): ");
         func_type->GenerateIRStmt(builder);
         builder.Emit(" {\n");
         builder.Emit("%entry:\n");
-        block->GenerateIRStmt(builder);
+        bool ret = block->GenerateIRStmt(builder);
         builder.Emit("}\n");
+        return ret;
     }
 };
 
@@ -419,12 +440,13 @@ public:
         std::cout << " } ";
     }
 
-    void GenerateIRStmt(IRBuilder &builder) const override
+    bool GenerateIRStmt(IRBuilder &builder) const override
     {
 
         if (func_type == "int")
         {
             builder.Emit("i32");
+            return false;
         }
         else
             abort();
@@ -445,14 +467,20 @@ public:
         std::cout << " } ";
     }
 
-    void GenerateIRStmt(IRBuilder &builder) const override
+    bool GenerateIRStmt(IRBuilder &builder) const override
     {
+        bool ret = false;
         global_symbol_table.CreateNewSymbolTable();
         for (const auto &item : block_items)
         {
-            item->GenerateIRStmt(builder);
+            ret = item->GenerateIRStmt(builder);
+            if (ret)
+            {
+                break;
+            }
         }
         global_symbol_table.DestroySymbolTable();
+        return ret;
     }
 };
 
@@ -467,9 +495,9 @@ public:
         std::cout << " } ";
     }
 
-    void GenerateIRStmt(IRBuilder &builder) const override
+    bool GenerateIRStmt(IRBuilder &builder) const override
     {
-        item->GenerateIRStmt(builder);
+        return item->GenerateIRStmt(builder);
     }
 };
 
@@ -484,9 +512,9 @@ public:
         std::cout << " } ";
     }
 
-    void GenerateIRStmt(IRBuilder &builder) const override
+    bool GenerateIRStmt(IRBuilder &builder) const override
     {
-        decl->GenerateIRStmt(builder);
+        return decl->GenerateIRStmt(builder);
     }
 };
 
@@ -506,13 +534,14 @@ public:
         std::cout << " } ";
     }
 
-    void GenerateIRStmt(IRBuilder &builder) const override
+    bool GenerateIRStmt(IRBuilder &builder) const override
     {
         btype->GenerateIRStmt(builder);
         for (const auto &const_def : const_defs)
         {
             const_def->GenerateIRStmt(builder);
         }
+        return false;
     }
 };
 
@@ -547,7 +576,7 @@ public:
         std::cout << " } ";
     }
 
-    void GenerateIRStmt(IRBuilder &builder) const override
+    bool GenerateIRStmt(IRBuilder &builder) const override
     {
         IRValue value = const_init_val->GenerateIRExpr(builder);
         if (!value.IsConst())
@@ -555,6 +584,7 @@ public:
             abort();
         }
         global_symbol_table.Insert(ident, {SymbolKind::Const, value.ToString()});
+        return false;
     }
 };
 
@@ -608,7 +638,7 @@ public:
         std::cout << " } ";
     }
 
-    void GenerateIRStmt(IRBuilder &builder) const override
+    bool GenerateIRStmt(IRBuilder &builder) const override
     {
         btype->GenerateIRStmt(builder);
         for (const auto &var_def : var_defs)
@@ -626,6 +656,7 @@ public:
             Symbol symbol = {SymbolKind::Var, variable_name};
             global_symbol_table.Insert(variable.ToString(), symbol);
         }
+        return false;
     }
 };
 
@@ -747,7 +778,7 @@ public:
         }
     }
 
-    void GenerateIRStmt(IRBuilder &builder) const override
+    bool GenerateIRStmt(IRBuilder &builder) const override
     {
         if (lval != nullptr)
         {
@@ -758,23 +789,139 @@ public:
             }
             IRValue exp_value = exp->GenerateIRExpr(builder);
             builder.Emit("  store " + exp_value.ToString() + ", " + variable.ToString() + "\n");
+            return false;
         }
         else if (block != nullptr)
         {
-            block->GenerateIRStmt(builder);
+            return block->GenerateIRStmt(builder);
         }
         else if (exp != nullptr && is_return)
         {
             builder.CreateReturn(exp->GenerateIRExpr(builder));
+            return true;
         }
         else if (exp != nullptr && !is_return)
         {
+            return false;
         }
         else if (exp == nullptr && is_return)
         {
+            return true;
         }
+        return false;
     }
 };
+
+class MatchedStmtAST : public BaseStmtAST
+{
+public:
+    std::unique_ptr<BaseAST> exp;
+    std::unique_ptr<BaseAST> if_stmt;
+    std::unique_ptr<BaseAST> else_stmt;
+    void Dump() const override
+    {
+        std::cout << "IfElseStmtAST { ";
+        std::cout << "if ( ";
+        exp->Dump();
+        std::cout << ") ";
+        if_stmt->Dump();
+        std::cout << " else ";
+        else_stmt->Dump();
+        std::cout << " } ";
+    }
+
+    bool GenerateIRStmt(IRBuilder &builder) const override
+    {
+        // 结构 if (exp) stmt else stmt
+        std::string tag_cnt = builder.GetTagCount();
+
+        // 生成 if exp 的IR
+        IRValue exp_value = exp->GenerateIRExpr(builder);
+        builder.CreateIfExp(exp_value, tag_cnt, true);
+
+        // 生成 if stmt 的IR
+        bool ret1 = if_stmt->GenerateIRStmt(builder);
+        if (!ret1)
+        {
+            builder.Emit("  jump %end" + tag_cnt + "\n\n");
+        }
+
+        builder.Emit("%else" + tag_cnt + ":\n");
+
+        // 生成 else stmt 的IR
+        bool ret2 = else_stmt->GenerateIRStmt(builder);
+        if (!ret2)
+        {
+            builder.Emit("  jump %end" + tag_cnt + "\n\n");
+        }
+
+        if (!(ret1 && ret2))
+        {
+            builder.Emit("%end" + tag_cnt + ":\n");
+        }
+
+        return ret1 && ret2;
+    }
+};
+
+class UnmatchedStmtAST : public BaseStmtAST
+{
+public:
+    std::unique_ptr<BaseAST> exp;
+    std::unique_ptr<BaseAST> if_stmt;
+    std::unique_ptr<BaseAST> else_stmt;
+    void Dump() const override
+    {
+        std::cout << "IfElseStmtAST { ";
+        std::cout << "if ( ";
+        exp->Dump();
+        std::cout << ") ";
+        if_stmt->Dump();
+        if (else_stmt != nullptr)
+        {
+            std::cout << " else ";
+            else_stmt->Dump();
+        }
+        std::cout << " } ";
+    }
+
+    bool GenerateIRStmt(IRBuilder &builder) const override
+    {
+        // 结构 if (exp) stmt else stmt
+        std::string tag_cnt = builder.GetTagCount();
+
+        // 生成 if exp 的IR
+        IRValue exp_value = exp->GenerateIRExpr(builder);
+        builder.CreateIfExp(exp_value, tag_cnt, else_stmt != nullptr);
+
+        // 生成 if stmt 的IR
+        bool ret1 = if_stmt->GenerateIRStmt(builder);
+        if (!ret1)
+        {
+            builder.Emit("  jump %end" + tag_cnt + "\n\n");
+        }
+
+        // 生成 else stmt 的IR
+        bool ret2 = false;
+        if (else_stmt != nullptr)
+        {
+            builder.Emit("%else" + tag_cnt + ":\n");
+            ret2 = else_stmt->GenerateIRStmt(builder);
+            if (!ret2)
+            {
+                builder.Emit("  jump %end" + tag_cnt + "\n\n");
+            }
+        }
+
+        if (!(ret1 && ret2))
+        {
+            builder.Emit("%end" + tag_cnt + ":\n");
+        }
+
+        return ret1 && ret2;
+    }
+};
+
 class ExpAST : public BaseExpAST
 {
 public:
@@ -998,14 +1145,16 @@ public:
         }
         else if (unaryOp == "-")
         {
+            std::string arg = builder.LoadIfVariable(ir_value);
             std::string reg = builder.NewReg();
-            builder.Emit("  " + reg + " = sub 0, " + value + "\n");
+            builder.Emit("  " + reg + " = sub 0, " + arg + "\n");
             return IRValue(Type::Register, reg);
         }
         else if (unaryOp == "!")
         {
+            std::string arg = builder.LoadIfVariable(ir_value);
             std::string reg = builder.NewReg();
-            builder.Emit("  " + reg + " = eq " + value + ", 0" + +"\n");
+            builder.Emit("  " + reg + " = eq " + arg + ", 0" + +"\n");
             return IRValue(Type::Register, reg);
         }
         else
