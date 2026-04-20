@@ -62,7 +62,7 @@ CompUnit
   : FuncDef {
     auto comp_unit = make_unique<CompUnitAST>();
     comp_unit->func_def = unique_ptr<BaseAST>($1);
-    ast = move(comp_unit);
+    ast = std::move(comp_unit);
   }
   ;
 

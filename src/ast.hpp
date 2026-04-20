@@ -1085,9 +1085,64 @@ public:
         {
             return eq_exp->GenerateIRExpr(builder);
         }
-        IRValue first_value = land_exp->GenerateIRExpr(builder);
-        IRValue second_value = eq_exp->GenerateIRExpr(builder);
-        return builder.CreateBinary(op, first_value, second_value);
+
+        IRValue land_value = land_exp->GenerateIRExpr(builder);
+        IRValue rhs_value = eq_exp->GenerateIRExpr(builder);
+        if (land_value.IsConst() && land_value.ToString() == "0")
+        {
+            return land_value;
+        }
+        else if (land_value.IsConst() && land_value.ToString() != "0")
+        {
+            if (rhs_value.IsConst())
+            {
+                if (rhs_value.ToString() == "0")
+                {
+                    return rhs_value;
+                }
+                else
+                {
+                    return IRValue(Type::Int, "1");
+                }
+            }
+            else
+            {
+                std::string arg = builder.LoadIfVariable(rhs_value);
+                std::string reg = builder.NewReg();
+                builder.Emit("  " + reg + " = ne " + arg + ", 0" + +"\n");
+                return IRValue(Type::Register, reg);
+            }
+        }
+
+        // 声明结果 int result = 0;
+        std::string result = "result";
+        global_symbol_table.Insert(result, {SymbolKind::Var, "0"});
+        global_symbol_table.AddCount(result);
+        int count = global_symbol_table.GetCount(result);
+        std::string variable_name = "@" + result + "_" + std::to_string(count);
+        builder.Emit("  " + variable_name + " = alloc i32\n");
+        std::string value = global_symbol_table.Get(result).value;
+        builder.Emit("  store " + value + ", " + variable_name + "\n");
+        Symbol symbol = {SymbolKind::Var, variable_name};
+        global_symbol_table.Insert(result, symbol);
+
+        // 计算左表达式 (...) != 0;
+        std::string arg = builder.LoadIfVariable(land_value);
+        std::string reg = builder.NewReg();
+        builder.Emit("  " + reg + " = ne " + arg + ", 0" + "\n");
+
+        // 结构 if (exp) result = rhs != 0
+        std::string tag_cnt = builder.GetTagCount();
+        builder.CreateIfExp(IRValue(Type::Register, reg), tag_cnt, false);
+
+        arg = builder.LoadIfVariable(rhs_value);
+        reg = builder.NewReg();
+        builder.Emit("  " + reg + " = ne " + arg + ", 0" + "\n");
+        builder.Emit("  store " + reg + ", " + variable_name + "\n");
+        builder.Emit("  jump %end" + tag_cnt + "\n\n");
+        builder.Emit("%end" + tag_cnt + ":\n");
+
+        return IRValue(Type::Variable, variable_name);
     }
 };
 
@@ -1115,9 +1170,63 @@ public:
         {
             return land_exp->GenerateIRExpr(builder);
         }
-        IRValue first_value = lor_exp->GenerateIRExpr(builder);
-        IRValue second_value = land_exp->GenerateIRExpr(builder);
-        return builder.CreateBinary(op, first_value, second_value);
+        IRValue land_value = lor_exp->GenerateIRExpr(builder);
+        IRValue rhs_value = land_exp->GenerateIRExpr(builder);
+        if (land_value.IsConst() && land_value.ToString() != "0")
+        {
+            return IRValue(Type::Int, "1");
+        }
+        else if (land_value.IsConst() && land_value.ToString() == "0")
+        {
+            if (rhs_value.IsConst())
+            {
+                if (rhs_value.ToString() != "0")
+                {
+                    return IRValue(Type::Int, "1");
+                }
+                else
+                {
+                    return rhs_value;
+                }
+            }
+            else
+            {
+                std::string arg = builder.LoadIfVariable(rhs_value);
+                std::string reg = builder.NewReg();
+                builder.Emit("  " + reg + " = ne " + arg + ", 0" + +"\n");
+                return IRValue(Type::Register, reg);
+            }
+        }
+
+        // 声明结果 int result = 0;
+        std::string result = "result";
+        global_symbol_table.Insert(result, {SymbolKind::Var, "1"});
+        global_symbol_table.AddCount(result);
+        int count = global_symbol_table.GetCount(result);
+        std::string variable_name = "@" + result + "_" + std::to_string(count);
+        builder.Emit("  " + variable_name + " = alloc i32\n");
+        std::string value = global_symbol_table.Get(result).value;
+        builder.Emit("  store " + value + ", " + variable_name + "\n");
+        Symbol symbol = {SymbolKind::Var, variable_name};
+        global_symbol_table.Insert(result, symbol);
+
+        // 计算左表达式 (...) == 0;
+        std::string arg = builder.LoadIfVariable(land_value);
+        std::string reg = builder.NewReg();
+        builder.Emit("  " + reg + " = eq " + arg + ", 0" + "\n");
+
+        // 结构 if (exp) result = rhs != 0
+        std::string tag_cnt = builder.GetTagCount();
+        builder.CreateIfExp(IRValue(Type::Register, reg), tag_cnt, false);
+
+        arg = builder.LoadIfVariable(rhs_value);
+        reg = builder.NewReg();
+        builder.Emit("  " + reg + " = ne " + arg + ", 0" + "\n");
+        builder.Emit("  store " + reg + ", " + variable_name + "\n");
+        builder.Emit("  jump %end" + tag_cnt + "\n\n");
+        builder.Emit("%end" + tag_cnt + ":\n");
+
+        return IRValue(Type::Variable, variable_name);
     }
 };
 
