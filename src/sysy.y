@@ -40,12 +40,12 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT CONST RETURN PLUS MINUS NOT MUL DIV MOD LT GT LE GE EQ NE AND OR IF ELSE
+%token INT CONST RETURN PLUS MINUS NOT MUL DIV MOD LT GT LE GE EQ NE AND OR IF ELSE WHILE
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
-%type <ast_val> FuncDef FuncType Block BlockItem Stmt MatchedStmt UnmatchedStmt OtherStmt
+%type <ast_val> FuncDef FuncType Block BlockItem Stmt MatchedStmt UnmatchedStmt OtherStmt WhileStmt
 %type <ast_val> ConstExp Exp PrimaryExp UnaryExp NumberExp MulExp AddExp RelExp EqExp LAndExp LOrExp
 %type <ast_val> Decl ConstDecl VarDecl VarDef InitVal BType ConstDef ConstInitVal LVal
 %type <ast_list> BlockItemList ConstDeclList VarDeclList
@@ -302,6 +302,19 @@ OtherStmt
     ast->is_return = true;
     $$ = ast;
   }
+  | WhileStmt {
+    $$ = $1;
+  }
+  ;
+
+WhileStmt
+  : WHILE '(' Exp ')' Stmt {
+    auto ast = new WhileStmtAST();
+    ast->exp = unique_ptr<BaseAST>($3);
+    ast->stmt = unique_ptr<BaseAST>($5);
+    $$ = ast;
+  }
+  ;
 
 MatchedStmt
   : IF '(' Exp ')' MatchedStmt ELSE MatchedStmt {

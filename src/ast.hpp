@@ -123,6 +123,7 @@ private:
     std::string ir;
     int reg_cnt = 0;
     int tag_cnt = 0;
+    int while_tag_cnt = 0;
 
     IRValue CreateBinaryOp(IRValue first_value, IRValue second_value,
                            const std::string &op_name,
@@ -329,6 +330,11 @@ public:
         return std::to_string(++tag_cnt);
     }
 
+    std::string GetWhileTagCount()
+    {
+        return std::to_string(++while_tag_cnt);
+    }
+
     void CreateIfExp(IRValue value, std::string tag_cnt, bool has_else)
     {
         std::string exp_value = LoadIfVariable(value);
@@ -341,6 +347,12 @@ public:
             Emit("  br " + exp_value + ", %then" + tag_cnt + ", %end" + tag_cnt + "\n\n");
         }
         Emit("%then" + tag_cnt + ":\n");
+    }
+
+    void CreateWhileExp(IRValue value, std::string tag_cnt)
+    {
+        std::string exp_value = LoadIfVariable(value);
+        Emit("  br " + exp_value + ", %while_body" + tag_cnt + ", %while_end" + tag_cnt + "\n\n");
     }
 
     void Emit(const std::string &s)
@@ -919,6 +931,43 @@ public:
         }
 
         return ret1 && ret2;
+    }
+};
+
+class WhileStmtAST : public BaseStmtAST
+{
+public:
+    std::unique_ptr<BaseAST> exp;
+    std::unique_ptr<BaseAST> stmt;
+    bool is_return;
+    void Dump() const override
+    {
+        std::cout << "WhileStmtAST { ";
+        std::cout << " while ( ";
+        exp->Dump();
+        std::cout << " ) ";
+        stmt->Dump();
+        std::cout << " } ";
+    }
+
+    bool GenerateIRStmt(IRBuilder &builder) const override
+    {
+        std::string while_tag_cnt = builder.GetWhileTagCount();
+        builder.Emit("  jump %while_entry" + while_tag_cnt + "\n\n");
+        builder.Emit("%while_entry" + while_tag_cnt + ":\n");
+
+        IRValue exp_value = exp->GenerateIRExpr(builder);
+        builder.CreateWhileExp(exp_value, while_tag_cnt);
+
+        builder.Emit("%while_body" + while_tag_cnt + ":\n");
+        bool ret = stmt->GenerateIRStmt(builder);
+        if (!ret)
+        {
+            builder.Emit("  jump %while_entry" + while_tag_cnt + "\n\n");
+        }
+
+        builder.Emit("%while_end" + while_tag_cnt + ":\n");
+        return false;
     }
 };
 
