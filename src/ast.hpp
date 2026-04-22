@@ -124,6 +124,7 @@ private:
     int reg_cnt = 0;
     int tag_cnt = 0;
     int while_tag_cnt = 0;
+    std::string current_while_tag_cnt;
 
     IRValue CreateBinaryOp(IRValue first_value, IRValue second_value,
                            const std::string &op_name,
@@ -330,9 +331,24 @@ public:
         return std::to_string(++tag_cnt);
     }
 
+    void AddWhileTagCount()
+    {
+        ++while_tag_cnt;
+    }
+
     std::string GetWhileTagCount()
     {
-        return std::to_string(++while_tag_cnt);
+        return std::to_string(while_tag_cnt);
+    }
+
+    void SetCurrentWhileTagCount(std::string tag_cnt)
+    {
+        current_while_tag_cnt = tag_cnt;
+    }
+
+    std::string GetCurrentWhileTagCount()
+    {
+        return current_while_tag_cnt;
     }
 
     void CreateIfExp(IRValue value, std::string tag_cnt, bool has_else)
@@ -952,7 +968,10 @@ public:
 
     bool GenerateIRStmt(IRBuilder &builder) const override
     {
+        std::string pre_tag_cnt = builder.GetWhileTagCount();
+        builder.AddWhileTagCount();
         std::string while_tag_cnt = builder.GetWhileTagCount();
+        builder.SetCurrentWhileTagCount(while_tag_cnt);
         builder.Emit("  jump %while_entry" + while_tag_cnt + "\n\n");
         builder.Emit("%while_entry" + while_tag_cnt + ":\n");
 
@@ -961,13 +980,51 @@ public:
 
         builder.Emit("%while_body" + while_tag_cnt + ":\n");
         bool ret = stmt->GenerateIRStmt(builder);
+
         if (!ret)
         {
             builder.Emit("  jump %while_entry" + while_tag_cnt + "\n\n");
         }
-
         builder.Emit("%while_end" + while_tag_cnt + ":\n");
+
+        builder.SetCurrentWhileTagCount(pre_tag_cnt);
         return false;
+    }
+};
+
+class BreakStmtAST : public BaseStmtAST
+{
+public:
+    void Dump() const override
+    {
+        std::cout << "BreakStmtAST { ";
+        std::cout << " break; ";
+        std::cout << " } ";
+    }
+
+    bool GenerateIRStmt(IRBuilder &builder) const override
+    {
+        std::string while_tag_cnt = builder.GetCurrentWhileTagCount();
+        builder.Emit("  jump %while_end" + while_tag_cnt + "\n\n");
+        return true;
+    }
+};
+
+class ContinueStmtAST : public BaseStmtAST
+{
+public:
+    void Dump() const override
+    {
+        std::cout << "ContinueStmtAST { ";
+        std::cout << " continue; ";
+        std::cout << " } ";
+    }
+
+    bool GenerateIRStmt(IRBuilder &builder) const override
+    {
+        std::string while_tag_cnt = builder.GetCurrentWhileTagCount();
+        builder.Emit("  jump %while_entry" + while_tag_cnt + "\n\n");
+        return true;
     }
 };
 
